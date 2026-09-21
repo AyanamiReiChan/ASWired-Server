@@ -1,0 +1,15 @@
+.git
+.github
+data
+bin
+dist
+*.zip
+*.tar.gz
+*.exe
+*.log
+.env
+.env.*
+!deploy/aswired.env.example
+**/*.key
+**/*.pem
+**/*.db

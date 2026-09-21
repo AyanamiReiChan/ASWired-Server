@@ -1,0 +1,51 @@
+import React from "react";
+import {
+  Bolt,
+  Home,
+  BarChart2,
+  CircleArrowRight,
+  MessageCircleMore,
+  Ellipsis,
+  Bell,
+  Unplug,
+  TrendingUp,
+  Users,
+  UserCircle,
+  FileText,
+  AtSign,
+  Book,
+  Server,
+  Activity,
+  Palette,
+  Code,
+  Globe,
+  Terminal,
+  Database
+} from "lucide-react";
+
+
+// Map icon names defined in menuConfig.json to their components
+export const iconMap: Record<string, React.ComponentType<any>> = {
+  Server,
+  Bolt,
+  Home,
+  BarChart2,
+  CircleArrowRight,
+  MessageCircleMore,
+  Ellipsis,
+  Bell,
+  Unplug,
+  TrendingUp,
+  Users,
+  UserCircle,
+  FileText,
+  AtSign,
+  Book,
+  Activity,
+  Palette,
+  Code,
+  Globe,
+  Terminal,
+  Database,
+};
+

@@ -1,0 +1,281 @@
+name: Follow Komari Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Komari release tag to mirror. Leave empty to use the latest stable release."
+        required: false
+        type: string
+      force:
+        description: "Rebuild and overwrite the release asset if the web release already exists."
+        required: false
+        default: false
+        type: boolean
+  repository_dispatch:
+    types:
+      - komari-release-published
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: follow-komari-release-${{ github.event.inputs.tag || github.event.client_payload.tag || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  mirror-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MANUAL_TAG: ${{ github.event.inputs.tag || '' }}
+      DISPATCH_TAG: ${{ github.event.client_payload.tag || '' }}
+      FORCE_RELEASE: ${{ github.event.inputs.force || 'false' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Komari release
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${MANUAL_TAG}"
+          if [ -z "$tag" ]; then
+            tag="${DISPATCH_TAG}"
+          fi
+
+          if [ -z "$tag" ]; then
+            tag="$(gh api repos/komari-monitor/komari/releases --jq '[.[] | select(.draft == false and .prerelease == false)][0].tag_name')"
+          fi
+
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Unable to resolve a Komari release tag." >&2
+            exit 1
+          fi
+
+          main_url="$(gh release view "$tag" --repo komari-monitor/komari --json url --jq .url)"
+          main_published_at="$(gh release view "$tag" --repo komari-monitor/komari --json publishedAt --jq .publishedAt)"
+
+          release_exists="false"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_exists="true"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "main_url=$main_url" >> "$GITHUB_OUTPUT"
+          echo "main_published_at=$main_published_at" >> "$GITHUB_OUTPUT"
+          echo "exists=$release_exists" >> "$GITHUB_OUTPUT"
+          echo "force=${FORCE_RELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if web release already exists
+        if: steps.release.outputs.exists == 'true' && steps.release.outputs.force != 'true'
+        shell: bash
+        run: |
+          {
+            echo "### Komari Web release"
+            echo
+            echo "Release ${{ steps.release.outputs.tag }} already exists. Nothing to do."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        run: npm ci
+
+      - name: Build web package
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        run: npm run build
+
+      - name: Package release asset
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f dist-release.zip
+          rm -rf release-package
+          mkdir -p release-package
+          cp preview.png release-package/
+          cp komari-theme.json release-package/
+          cp -r dist release-package/
+          cd release-package
+          zip -qr ../dist-release.zip .
+
+      - name: Generate release notes
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        uses: actions/github-script@v9
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        with:
+          script: |
+            const fs = require("fs");
+            const { owner, repo } = context.repo;
+            const tag = process.env.RELEASE_TAG;
+
+            const clean = (value) => (typeof value === "string" ? value.trim() : "");
+            const releaseTimestamp = (release) => Date.parse(release.published_at || release.created_at || "");
+
+            async function getPreviousReleaseTag() {
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+
+              const candidates = releases
+                .filter((item) => !item.draft && item.tag_name !== tag)
+                .sort((left, right) => releaseTimestamp(right) - releaseTimestamp(left));
+
+              return candidates[0]?.tag_name || "";
+            }
+
+            async function getComparedCommits(previousTag) {
+              if (!previousTag) {
+                return [];
+              }
+
+              const commits = [];
+              for (let page = 1; page <= 20; page += 1) {
+                const response = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${previousTag}...${process.env.GITHUB_SHA}`,
+                  per_page: 100,
+                  page,
+                });
+
+                commits.push(...response.data.commits);
+
+                if (!response.headers.link?.includes('rel="next"')) {
+                  break;
+                }
+              }
+
+              return commits;
+            }
+
+            function renderCommitLine(commit) {
+              const subject = clean(commit.commit.message.split("\n")[0]) || "(no subject)";
+              const shortSha = commit.sha.slice(0, 7);
+              const author = commit.author?.login
+                ? ` @${commit.author.login}`
+                : (commit.commit.author?.name ? ` ${commit.commit.author.name}` : "");
+
+              return `- ${subject} ([${shortSha}](${commit.html_url}))${author}`;
+            }
+
+            async function buildCommitSection(previousTag) {
+              if (!previousTag) {
+                return "## Commits\n\nNo previous release tag was found; commit comparison is unavailable.";
+              }
+
+              const commits = await getComparedCommits(previousTag);
+              if (commits.length === 0) {
+                return `## Commits\n\nNo commits found between \`${previousTag}\` and \`${tag}\`.`;
+              }
+
+              return ["## Commits", "", ...commits.map(renderCommitLine)].join("\n");
+            }
+
+            const previousTag = await getPreviousReleaseTag();
+            const noteParams = {
+              owner,
+              repo,
+              tag_name: tag,
+              target_commitish: process.env.GITHUB_SHA,
+            };
+
+            if (previousTag) {
+              noteParams.previous_tag_name = previousTag;
+            }
+
+            const generated = await github.request(
+              "POST /repos/{owner}/{repo}/releases/generate-notes",
+              noteParams,
+            );
+
+            const generatedBody = clean(generated.data.body);
+            if (!generatedBody) {
+              core.setFailed(`GitHub returned empty release notes for ${tag}.`);
+              return;
+            }
+
+            const body = [
+              generatedBody,
+              await buildCommitSection(previousTag),
+            ].join("\n\n");
+
+            fs.writeFileSync("release-notes.md", `${body}\n`);
+
+      - name: Create or update web release
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.release.outputs.tag }}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$tag" \
+              --notes-file release-notes.md \
+              --latest
+            gh release upload "$tag" dist-release.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$tag" dist-release.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$tag" \
+              --notes-file release-notes.md \
+              --latest
+          fi
+
+          {
+            echo "### Komari Web release"
+            echo
+            echo "Published $tag following ${{ steps.release.outputs.main_url }}."
+            echo
+            echo "Asset: \`dist-release.zip\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Refresh Komari release notes
+        if: steps.release.outputs.exists != 'true' || steps.release.outputs.force == 'true'
+        shell: bash
+        env:
+          KOMARI_RELEASE_NOTES_TOKEN: ${{ secrets.KOMARI_RELEASE_NOTES_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${KOMARI_RELEASE_NOTES_TOKEN:-}" ]; then
+            {
+              echo
+              echo "Skipped Komari release note refresh because KOMARI_RELEASE_NOTES_TOKEN is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          tag="${{ steps.release.outputs.tag }}"
+          payload="$(jq -n --arg tag "$tag" '{event_type:"komari-web-release-published", client_payload:{tag:$tag}}')"
+          GH_TOKEN="$KOMARI_RELEASE_NOTES_TOKEN" gh api \
+            repos/komari-monitor/komari/dispatches \
+            --method POST \
+            --input - <<< "$payload"
+
+          {
+            echo
+            echo "Requested Komari release notes refresh for ${tag}."
+          } >> "$GITHUB_STEP_SUMMARY"

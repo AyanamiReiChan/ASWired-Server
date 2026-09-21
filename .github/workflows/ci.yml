@@ -1,0 +1,54 @@
+name: Server CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+      - if: runner.os == 'Linux'
+        run: go test -race ./...
+      - if: runner.os == 'Linux'
+        run: bash -n scripts/install.sh
+      - if: runner.os == 'Linux'
+        run: docker build -t aswired-server:ci .
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aswired_test
+          POSTGRES_PASSWORD: local_ci_only
+          POSTGRES_DB: aswired_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U aswired_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: true
+      - run: go test -v ./internal/store -run TestPostgresIntegration -count=1
+        env:
+          ASWIRED_TEST_POSTGRES_DSN: postgres://aswired_test:local_ci_only@127.0.0.1:5432/aswired_test?sslmode=disable

@@ -1,0 +1,43 @@
+name: Build and Release Assets
+
+on:
+  release:
+    types: [created] # 仅在创建新的 Release 时触发
+
+jobs:
+  build_and_upload: # 合并了构建和上传的作业
+    runs-on: ubuntu-latest
+    permissions: # 需要权限来写入 Release 附件
+      contents: write # 或者 specific permissions like `release: write` if more granular control is needed. For `actions/upload-release-asset` this is often sufficient.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build project
+        run: npm run build
+        
+      - name: Archive build artifacts
+        run: |
+          cd dist
+          zip -r ../dist-release.zip .
+          cd ..
+        # 将 dist 文件夹压缩为 dist-release.zip
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }} # 获取上传到 Release 的 URL
+          asset_path: ./dist-release.zip # 要上传的文件的路径
+          asset_name: dist-release.zip # 在 Release 中显示的文件名
+          asset_content_type: application/zip # 文件类型

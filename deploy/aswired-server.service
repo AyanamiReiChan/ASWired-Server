@@ -1,0 +1,27 @@
+[Unit]
+Description=ASWired controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=aswired
+Group=aswired
+StateDirectory=aswired
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/aswired
+EnvironmentFile=-/etc/aswired/server.env
+Environment=ASWIRED_DATA_DIR=/var/lib/aswired
+ExecStart=/usr/local/bin/aswired-server serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=240
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aswired
+
+[Install]
+WantedBy=multi-user.target

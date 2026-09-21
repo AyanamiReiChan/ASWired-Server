@@ -1,0 +1,23 @@
+name: Integrated Komari checks
+on:
+  push:
+    branches: [aswired, main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - run: mkdir -p web/public/defaultTheme && cp -R frontend/dist web/public/defaultTheme/ && cp frontend/komari-theme.json web/public/defaultTheme/
+      - run: go test ./...
+      - run: go vet ./...

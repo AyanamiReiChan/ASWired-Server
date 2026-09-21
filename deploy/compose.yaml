@@ -1,0 +1,15 @@
+services:
+  server:
+    build:
+      context: ..
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:12889:12889"
+    environment:
+      ASWIRED_DATA_DIR: /data
+      ASWIRED_LISTEN: 0.0.0.0:12889
+      ASWIRED_PUBLIC_URL: http://127.0.0.1:12889
+    volumes:
+      - aswired-data:/data
+volumes:
+  aswired-data:

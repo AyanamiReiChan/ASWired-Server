@@ -1,0 +1,68 @@
+name: i18n sync
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    # 避免由机器人再次触发循环
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: i18n-sync-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund || npm i --no-audit --no-fund
+
+      - name: Run i18n sync
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          #I18N_LOCALES_DIR: ${{ vars.I18N_LOCALES_DIR }}
+          #I18N_SOURCE: ${{ vars.I18N_SOURCE }}
+          #I18N_AI_BATCH_SIZE: ${{ vars.I18N_AI_BATCH_SIZE }}
+          #I18N_AI_MAX_INPUT_CHARS: ${{ vars.I18N_AI_MAX_INPUT_CHARS }}
+        run: |
+          node script/i18n-sync.mjs
+
+      - name: Check for changes
+        id: diff
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.diff.outputs.changed == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(i18n): sync locales [skip ci]"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
