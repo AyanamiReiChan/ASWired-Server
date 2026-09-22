@@ -13,7 +13,6 @@ import (
 
 	"github.com/AyanamiReiChan/ASWired-Server/internal/store"
 	"gopkg.in/ini.v1"
-	"gopkg.in/yaml.v3"
 )
 
 var templateMu sync.Mutex
@@ -257,7 +256,7 @@ func normalizeTemplateDocument(raw, kind string, version int) (string, []string,
 		return "", nil, errors.New("订阅模板不允许注入外部节点提供器")
 	}
 	if len(mapList(cfg["proxies"])) > 0 {
-		data, err := yaml.Marshal(cfg)
+		data, err := marshalConfigYAML(cfg)
 		if err != nil {
 			return "", nil, err
 		}
@@ -268,7 +267,7 @@ func normalizeTemplateDocument(raw, kind string, version int) (string, []string,
 		return extracted, warnings, nil
 	}
 	delete(cfg, "proxies")
-	rawBytes, err := yaml.Marshal(cfg)
+	rawBytes, err := marshalConfigYAML(cfg)
 	return string(rawBytes), warnings, err
 }
 
@@ -311,7 +310,7 @@ func (a *App) templatePreview(ctx context.Context, content, kind string) (string
 	if err != nil {
 		return "", err
 	}
-	data, err := yaml.Marshal(cfg)
+	data, err := marshalConfigYAML(cfg)
 	return string(data), err
 }
 
@@ -571,7 +570,7 @@ func templateFromSubscription(raw, kind string) (string, error) {
 		}
 		delete(group, "use")
 	}
-	data, err := yaml.Marshal(cfg)
+	data, err := marshalConfigYAML(cfg)
 	return string(data), err
 }
 
@@ -610,7 +609,7 @@ func (a *App) selectedTemplate(ctx context.Context, sub store.Record, format str
 			return row, nil
 		}
 	}
-	return store.Record{}, nil
+	return builtinSubscriptionTemplate(format), nil
 }
 
 func (a *App) templateOptions(w http.ResponseWriter, r *http.Request) {

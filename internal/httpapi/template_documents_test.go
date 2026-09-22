@@ -139,7 +139,19 @@ func TestTemplateDefaultsAffectClientOutput(t *testing.T) {
 		if kind == "Clash" && !strings.Contains(output, "9876") || kind != "Clash" && !strings.Contains(output, "loglevel = notify") {
 			t.Fatal("default not applied", kind, output)
 		}
+		if kind == "Clash" {
+			assertClashPorts(t, output, 9876, 443)
+		}
 	}
+}
+
+func TestClashTemplatePreviewPreservesPortTypes(t *testing.T) {
+	a, _ := subscriptionFixture(t)
+	output, err := a.templatePreview(context.Background(), "mixed-port: 9876\n"+blankTemplate("Clash"), "Clash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertClashPorts(t, output, 9876, 443)
 }
 
 func TestTemplateURLAndSubscriptionImport(t *testing.T) {

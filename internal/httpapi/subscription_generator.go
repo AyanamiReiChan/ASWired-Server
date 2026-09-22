@@ -147,7 +147,7 @@ func (a *App) renderGenerated(ctx context.Context, actor store.User, in generato
 	if len(in.NodeIDs) == 0 || len(in.NodeIDs) > 500 {
 		return "", "", 0, store.Record{}, errors.New("请选择 1 至 500 个节点")
 	}
-	if in.Mode != "custom" && in.Mode != "template" {
+	if in.Mode != "default" && in.Mode != "custom" && in.Mode != "template" {
 		return "", "", 0, store.Record{}, errors.New("规则模式无效")
 	}
 	sub, candidates, err := a.generatorCandidates(ctx, actor, in.SubscriptionID, ip)
@@ -188,10 +188,12 @@ func (a *App) renderGenerated(ctx context.Context, actor store.User, in generato
 	}
 	renderSub := sub
 	renderSub.Data = clone(sub.Data)
-	delete(renderSub.Data, "scriptId")
-	delete(renderSub.Data, "templateId")
-	renderSub.Data["skipTemplates"] = true
-	renderSub.Data["skipRuleOverrides"] = in.Mode == "custom"
+	if in.Mode != "default" {
+		delete(renderSub.Data, "scriptId")
+		delete(renderSub.Data, "templateId")
+		renderSub.Data["skipTemplates"] = true
+		renderSub.Data["skipRuleOverrides"] = in.Mode == "custom"
+	}
 	if in.Mode == "template" {
 		template, err := a.DB.GetRecord(ctx, "policies", in.TemplateID)
 		if err != nil || !templateMatches(template.Data, in.Format) {
@@ -232,7 +234,7 @@ func (a *App) renderGenerated(ctx context.Context, actor store.User, in generato
 				return "", "", 0, sub, err
 			}
 			cfg["rules"] = append(rules, "MATCH,ASWired")
-			raw, err := yaml.Marshal(cfg)
+			raw, err := marshalConfigYAML(cfg)
 			if err != nil {
 				return "", "", 0, sub, err
 			}

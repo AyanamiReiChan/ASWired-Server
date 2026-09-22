@@ -1242,7 +1242,7 @@ func (a *App) renderClientNodes(ctx context.Context, sub store.Record, nodes []c
 		if format == "singbox" {
 			raw, e = json.MarshalIndent(content, "", "  ")
 		} else {
-			raw, e = yaml.Marshal(content)
+			raw, e = marshalConfigYAML(content)
 		}
 		if e != nil {
 			return "", "", len(reasons), e
@@ -1913,7 +1913,7 @@ func (a *App) applySubscriptionTemplate(ctx context.Context, sub store.Record, c
 		}
 	}
 	var err error
-	if format == "clash" || format == "mihomo" {
+	if format == "clash" || format == "mihomo" || format == "stash" {
 		configMap, err = expandTemplate(configMap)
 		if err != nil {
 			return nil, err

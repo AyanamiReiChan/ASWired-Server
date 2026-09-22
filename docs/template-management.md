@@ -29,9 +29,28 @@ deleted until their subscription/rule bindings are removed.
 
 ## Selection and Visibility
 
-Each client type can have one default. A subscription's matching explicit
-binding wins; otherwise the matching format default is used. Clash templates
-also apply to Stash. Temporary subscriptions bypass these templates.
+Each client type can have one administrator-selected default. Selection prefers
+the subscription's explicit binding, then the package's `templateIds` binding,
+then the administrator-selected default for that format. Clash templates also
+apply to Stash. Temporary subscriptions bypass these templates.
+
+When none of these bindings apply, Clash/Stash use the bundled
+`internal/httpapi/builtin_templates/clash-default.yaml`, adapted from the
+user-provided Orion002 template. It has 22 policy groups and 10,251 ordered,
+deduplicated rules: automatic/manual node selection, Telegram, AI, streaming,
+Microsoft, Apple, games, domestic/direct traffic, advertising and application
+filtering, and a final fallback group. Existing custom defaults take priority.
+Other client formats retain their existing fallback configurations.
+
+Only the subscription's authorized nodes and credentials populate the manual
+and automatic groups. Automatic selection tests proxy nodes every 300 seconds
+with a 50 ms tolerance; DIRECT and REJECT are not test candidates. Rules are
+bundled locally with no remote rule providers. The template does not override
+DNS or TUN settings. GEOIP still uses the client's geolocation database.
+
+The subscription generator's default mode follows the same selection order;
+custom rules and explicitly chosen templates remain separate modes. Empty
+template creation still starts with the minimal editable configuration.
 
 `GET /api/templates/options` returns metadata only. Members receive only
 templates marked `userVisible`. Public subscription requests can select a

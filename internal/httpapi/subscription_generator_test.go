@@ -33,6 +33,7 @@ func TestGeneratorFilesAndLinkLifecycle(t *testing.T) {
 			t.Fatal(content)
 		}
 		if format == "clash" {
+			assertClashPorts(t, content, 7890, 443)
 			var cfg map[string]any
 			if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
 				t.Fatal(err)
@@ -53,7 +54,9 @@ func TestGeneratorFilesAndLinkLifecycle(t *testing.T) {
 	data := responseMap(t, res)
 	link := text(data, "url")
 	id := text(data["row"].(map[string]any), "id")
-	requireStatus(t, controllerRequest(t, h, "GET", link, "", nil), 200)
+	download := controllerRequest(t, h, "GET", link, "", nil)
+	requireStatus(t, download, 200)
+	assertClashPorts(t, download.Body.String(), 7890, 443)
 	saved, _ := a.DB.GetRecord(ctx, generatedSubscriptionCollection, id)
 	if saved.Data["content"] != nil || saved.Data["token"] != nil {
 		t.Fatal("link stored output credentials or raw token")
@@ -124,6 +127,7 @@ func TestGeneratorScopeTemplatesAndParentRevocation(t *testing.T) {
 	if err != nil || !strings.Contains(output, "9876") {
 		t.Fatal(output, err)
 	}
+	assertClashPorts(t, output, 9876, 443)
 	input.Format = "surge"
 	if _, _, _, _, err := a.renderGenerated(ctx, actor, input, "127.0.0.1", ""); err == nil {
 		t.Fatal("incompatible node or template accepted")

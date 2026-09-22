@@ -133,9 +133,10 @@ func (a *App) generatedUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.TemplateID != nil {
 		rec.Data["templateId"] = *in.TemplateID
-		rec.Data["mode"] = "custom"
 		if *in.TemplateID != "" {
 			rec.Data["mode"] = "template"
+		} else if text(rec.Data, "mode") != "custom" {
+			rec.Data["mode"] = "default"
 		}
 	}
 	if in.NodeIDs != nil {

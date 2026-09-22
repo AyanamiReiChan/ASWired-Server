@@ -87,6 +87,9 @@ func TestClientFormatsAndCompatibility(t *testing.T) {
 					t.Fatalf("invalid YAML: %v", err)
 				}
 			}
+			if format == "clash" {
+				assertClashPorts(t, output, 7890, 443)
+			}
 			if format == "singbox" {
 				var result map[string]any
 				if json.Unmarshal([]byte(output), &result) != nil || len(result["outbounds"].([]any)) < 2 {
@@ -129,6 +132,27 @@ func TestClientFormatsAndCompatibility(t *testing.T) {
 	eg := egernNode(vless)["vless"].(map[string]any)
 	if eg["user_id"] != vless.UUID || eg["transport"].(map[string]any)["tls"] == nil {
 		t.Fatal("Egern Reality schema incorrect")
+	}
+}
+
+func assertClashPorts(t *testing.T, output string, mixedPort, proxyPort int) {
+	t.Helper()
+	var cfg struct {
+		MixedPort int `yaml:"mixed-port"`
+		Proxies   []struct {
+			Port int `yaml:"port"`
+		} `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal([]byte(output), &cfg); err != nil {
+		t.Fatalf("Clash ports must decode as integers: %v", err)
+	}
+	if cfg.MixedPort != mixedPort || len(cfg.Proxies) == 0 {
+		t.Fatalf("unexpected Clash configuration: %+v", cfg)
+	}
+	for _, proxy := range cfg.Proxies {
+		if proxy.Port != proxyPort {
+			t.Fatalf("proxy port = %d, want %d", proxy.Port, proxyPort)
+		}
 	}
 }
 
