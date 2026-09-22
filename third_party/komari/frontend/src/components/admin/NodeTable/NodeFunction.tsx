@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_REPORT_INTERVAL } from "@/utils/agentInstall";
 import * as React from "react";
 import { z } from "zod";
 import { schema } from "@/components/admin/NodeTable/schema/node";
@@ -53,7 +54,7 @@ export function ActionsCell({ row }: { row: Row<z.infer<typeof schema>> }) {
   const generateCommand = () => {
     const host = window.location.origin;
     const token = row.original.token ?? "";
-    const args: string[] = ["-e", host, "-t", token];
+    const args: string[] = ["-e", host, "-t", token, "-i", DEFAULT_AGENT_REPORT_INTERVAL];
     // 根据安装选项生成参数
     if (installOptions.disableWebSsh) {
       args.push("--disable-web-ssh");

@@ -18,6 +18,8 @@ Komari 使用独立的 HttpOnly 会话 Cookie，但身份、角色、密码、�
 
 ## 配置
 
+网站侧栏「探针监控」及旧 `/probe` 链接直接跳转到 `ASWIRED_KOMARI_PUBLIC_URL` 的 Komari 探针首页。「Komari 管理」仍用于管理员登录后台。公开跳转只读取公开访问地址，不使用可能指向回环地址的 `probeBaseUrl`，也不受原 ASWired 公开展示开关影响；未配置公开地址时显示错误提示。
+
 ASWired：
 
 ```dotenv

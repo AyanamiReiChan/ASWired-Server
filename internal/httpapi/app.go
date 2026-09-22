@@ -262,6 +262,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/clash/subscribe", a.publicSubscription)
 	mux.HandleFunc("GET /x/{code}", a.shortSubscription)
 	mux.HandleFunc("GET /api/public/probe-servers", a.probeServers)
+	mux.HandleFunc("GET /api/public/probe-link", a.probeLink)
 	mux.HandleFunc("GET /api/public/appearance", a.publicAppearance)
 	mux.HandleFunc("GET /api/public/probe-series", a.probeSeries)
 	mux.HandleFunc("GET /api/public/probe-ws", a.probeWS)

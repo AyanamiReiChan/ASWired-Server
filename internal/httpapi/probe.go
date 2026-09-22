@@ -15,6 +15,17 @@ import (
 
 var metricNames = map[string]string{"cpu_pct": "cpu_percent", "mem_used": "memory_used", "mem_total": "memory_total", "disk_used": "disk_used", "disk_total": "disk_total", "upload_speed": "network_tx_per_second", "download_speed": "network_rx_per_second", "cumulative_up": "network_tx_bytes", "cumulative_down": "network_rx_bytes"}
 
+func (a *App) probeLink(w http.ResponseWriter, r *http.Request) {
+	// The collection endpoint may be a private loopback address. Browser links
+	// must use the independently configured public Komari origin instead.
+	origin, err := secureOrigin(a.Config.KomariPublicURL)
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, "komari_unavailable", "尚未配置 Komari 公开访问地址，请联系管理员")
+		return
+	}
+	respond(w, http.StatusOK, map[string]string{"url": origin + "/"})
+}
+
 func (a *App) publicAppearance(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]any
 	_ = a.DB.GetSetting(r.Context(), "settings", &settings)

@@ -1,3 +1,4 @@
+import { agentReportInterval, DEFAULT_AGENT_REPORT_INTERVAL } from "@/utils/agentInstall";
 import {
   quotePowerShellArg,
   quoteShellArg,
@@ -220,7 +221,7 @@ const AutoDiscoverySection = ({
       includeNics: "",
       excludeNics: "",
       includeMountpoints: "",
-      interval: "",
+      interval: DEFAULT_AGENT_REPORT_INTERVAL,
       monthRotate: "",
     });
 
@@ -297,17 +298,7 @@ const AutoDiscoverySection = ({
       args.push(`--include-mountpoint`);
       args.push(includeMountpoints);
     }
-    if (enableInterval) {
-      const intervalVal = Number.parseFloat(
-        (installOptions.interval || "").trim()
-      );
-      args.push("-i");
-      args.push(
-        Number.isFinite(intervalVal) && intervalVal >= 1
-          ? String(intervalVal)
-          : "1"
-      );
-    }
+    args.push("-i", agentReportInterval(enableInterval ? installOptions.interval : undefined));
     if (enableMonthRotate) {
       const rotateVal = (installOptions.monthRotate || "").trim() || "1";
       args.push(`--month-rotate`);
@@ -847,8 +838,8 @@ const AutoDiscoverySection = ({
                     interval: en
                       ? prev.interval?.trim()
                         ? prev.interval
-                        : "1"
-                      : "",
+                        : DEFAULT_AGENT_REPORT_INTERVAL
+                      : DEFAULT_AGENT_REPORT_INTERVAL,
                   }));
                 }}
               />
@@ -862,8 +853,8 @@ const AutoDiscoverySection = ({
                     interval: willEnable
                       ? prev.interval?.trim()
                         ? prev.interval
-                        : "1"
-                      : "",
+                        : DEFAULT_AGENT_REPORT_INTERVAL
+                      : DEFAULT_AGENT_REPORT_INTERVAL,
                   }));
                 }}
               >
@@ -872,7 +863,7 @@ const AutoDiscoverySection = ({
             </Flex>
             {enableInterval && (
               <TextField.Root
-                placeholder="1"
+                placeholder={DEFAULT_AGENT_REPORT_INTERVAL}
                 type="number"
                 min="1"
                 step="0.1"
@@ -1430,7 +1421,7 @@ function GenerateCommandButton({ node, settings }: { node: NodeDetail, settings:
     includeNics: "",
     excludeNics: "",
     includeMountpoints: "",
-    interval: "",
+    interval: DEFAULT_AGENT_REPORT_INTERVAL,
     monthRotate: "",
   });
 
@@ -1511,11 +1502,7 @@ function GenerateCommandButton({ node, settings }: { node: NodeDetail, settings:
       args.push(`--include-mountpoint`);
       args.push(includeMountpoints);
     }
-    if (enableInterval) {
-      const intervalVal = Number.parseFloat((installOptions.interval || "").trim());
-      args.push("-i");
-      args.push(Number.isFinite(intervalVal) && intervalVal >= 1 ? String(intervalVal) : "1");
-    }
+    args.push("-i", agentReportInterval(enableInterval ? installOptions.interval : undefined));
     if (enableMonthRotate) {
       const rotateVal = (installOptions.monthRotate || "").trim() || "1"; // 默认 1
       args.push(`--month-rotate`);
@@ -2031,12 +2018,12 @@ function GenerateCommandButton({ node, settings }: { node: NodeDetail, settings:
                     if (!enabled) {
                       setInstallOptions((prev) => ({
                         ...prev,
-                        interval: "",
+                        interval: DEFAULT_AGENT_REPORT_INTERVAL,
                       }));
                     } else {
                       setInstallOptions((prev) => ({
                         ...prev,
-                        interval: prev.interval?.trim() ? prev.interval : "1",
+                        interval: prev.interval?.trim() ? prev.interval : DEFAULT_AGENT_REPORT_INTERVAL,
                       }));
                     }
                   }}
@@ -2049,12 +2036,12 @@ function GenerateCommandButton({ node, settings }: { node: NodeDetail, settings:
                     if (!willEnable) {
                       setInstallOptions((prev) => ({
                         ...prev,
-                        interval: "",
+                        interval: DEFAULT_AGENT_REPORT_INTERVAL,
                       }));
                     } else {
                       setInstallOptions((prev) => ({
                         ...prev,
-                        interval: prev.interval?.trim() ? prev.interval : "1",
+                        interval: prev.interval?.trim() ? prev.interval : DEFAULT_AGENT_REPORT_INTERVAL,
                       }));
                     }
                   }}
@@ -2064,7 +2051,7 @@ function GenerateCommandButton({ node, settings }: { node: NodeDetail, settings:
               </Flex>
               {enableInterval && (
                 <TextField.Root
-                  placeholder="1"
+                  placeholder={DEFAULT_AGENT_REPORT_INTERVAL}
                   type="number"
                   min="1"
                   step="0.1"
