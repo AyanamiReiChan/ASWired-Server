@@ -6,6 +6,8 @@ ASWired 的主控后端，独立 Go 模块。网站仓库为 ASWired，节点程
 
 完整部署请使用 [ASWired-Release](https://github.com/AyanamiReiChan/ASWired-Release)。设置中的版本检查、Agent 更新和 CLI 升级均从该仓库读取固定版本制品与 SHA256。首次管理员由安装者在网页登录时自行创建。
 
+v1.0.3 的流量统计优化、一致性保证及可复现本地基准见 [流量统计性能](docs/traffic-performance.md)。
+
 ## 本地启动
 
 当前代码使用 Go 1.27.1 构建和测试，模块最低版本为 Go 1.26。

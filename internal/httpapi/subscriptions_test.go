@@ -28,7 +28,7 @@ func realityClientFixtureURI(host, name string) string {
 	return uri.String()
 }
 
-func subscriptionFixture(t *testing.T) (*App, store.Record) {
+func subscriptionFixture(t testing.TB) (*App, store.Record) {
 	t.Helper()
 	directory := t.TempDir()
 	db, err := store.Open(store.Config{Driver: "sqlite", DSN: filepath.Join(directory, "test.db")})

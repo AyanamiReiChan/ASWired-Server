@@ -19,27 +19,7 @@ import (
 
 var trafficMu sync.Mutex
 
-func (a *App) ensureTrafficSchema(ctx context.Context) error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS traffic_cursors(server_id TEXT NOT NULL,counter_key TEXT NOT NULL,generation TEXT NOT NULL,last_value BIGINT NOT NULL,sampled_at BIGINT NOT NULL,PRIMARY KEY(server_id,counter_key))`,
-		`CREATE TABLE IF NOT EXISTS traffic_ledger(id TEXT PRIMARY KEY,server_id TEXT NOT NULL,subscription_id TEXT NOT NULL,owner_id TEXT NOT NULL DEFAULT '',email TEXT NOT NULL,direction TEXT NOT NULL,raw_bytes BIGINT NOT NULL,factor DOUBLE PRECISION NOT NULL,weighted_bytes DOUBLE PRECISION NOT NULL,sampled_at BIGINT NOT NULL,gap INTEGER NOT NULL,gap_reason TEXT NOT NULL)`,
-		`CREATE INDEX IF NOT EXISTS traffic_ledger_subscription ON traffic_ledger(subscription_id,sampled_at)`,
-		`CREATE INDEX IF NOT EXISTS traffic_ledger_sampled ON traffic_ledger(sampled_at)`,
-		`CREATE INDEX IF NOT EXISTS traffic_ledger_server_sampled ON traffic_ledger(server_id,sampled_at)`,
-		`CREATE INDEX IF NOT EXISTS traffic_ledger_owner_sampled ON traffic_ledger(owner_id,sampled_at)`,
-	}
-	for _, q := range queries {
-		if _, err := a.DB.DB().ExecContext(ctx, q); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (a *App) subscriptionUsage(ctx context.Context, sub store.Record) (total, up, down float64, err error) {
-	if err = a.ensureTrafficSchema(ctx); err != nil {
-		return
-	}
 	start := dateTime(text(sub.Data, "cycleStart"))
 	end := dateTime(text(sub.Data, "cycleEnd"))
 	if start.IsZero() {
@@ -48,33 +28,21 @@ func (a *App) subscriptionUsage(ctx context.Context, sub store.Record) (total, u
 	if end.IsZero() {
 		end = time.Now().AddDate(100, 0, 0)
 	}
-	var summed sql.NullFloat64
-	err = a.DB.DB().QueryRowContext(ctx, a.DB.Bind(`SELECT SUM(weighted_bytes) FROM traffic_ledger WHERE subscription_id=? AND sampled_at>=? AND sampled_at<?`), sub.ID, start.UnixMilli(), end.UnixMilli()).Scan(&summed)
-	if err != nil {
-		return
+	usage, err := a.DB.SubscriptionUsage(ctx, sub.ID, start.UnixMilli(), end.UnixMilli())
+	return usage.Total, usage.Up, usage.Down, err
+}
+
+// Usage fields are derived display data. Quota decisions always read the ledger.
+func setSubscriptionUsage(sub *store.Record, total, up, down float64) bool {
+	used := math.Round(total/gib*10000) / 10000
+	if number(sub.Data, "usedBytes") == total && number(sub.Data, "uploadBytes") == up && number(sub.Data, "downloadBytes") == down && number(sub.Data, "used") == used {
+		return false
 	}
-	total = summed.Float64
-	rows, e := a.DB.DB().QueryContext(ctx, a.DB.Bind(`SELECT direction,SUM(weighted_bytes) FROM traffic_ledger WHERE subscription_id=? AND sampled_at>=? AND sampled_at<? GROUP BY direction`), sub.ID, start.UnixMilli(), end.UnixMilli())
-	if e != nil {
-		err = e
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var direction string
-		var value float64
-		if e := rows.Scan(&direction, &value); e != nil {
-			err = e
-			return
-		}
-		if direction == "uplink" {
-			up = value
-		} else if direction == "downlink" {
-			down = value
-		}
-	}
-	err = rows.Err()
-	return
+	sub.Data["usedBytes"] = total
+	sub.Data["uploadBytes"] = up
+	sub.Data["downloadBytes"] = down
+	sub.Data["used"] = used
+	return true
 }
 
 type trafficOwner struct {
@@ -105,10 +73,6 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 	}
 	trafficMu.Lock()
 	defer trafficMu.Unlock()
-	if err := a.ensureTrafficSchema(ctx); err != nil {
-		slog.Error("traffic schema", "error", err)
-		return
-	}
 	subscriptions, err := a.DB.ListRecords(ctx, "subscriptions", "")
 	if err != nil {
 		return
@@ -177,6 +141,7 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 	if generation == "<nil>" {
 		generation = "unknown"
 	}
+	affected := make(map[string]bool)
 	for key, raw := range counters {
 		parts := strings.Split(key, ">>>")
 		if len(parts) != 4 || parts[0] != "user" || parts[2] != "traffic" || (parts[3] != "uplink" && parts[3] != "downlink") {
@@ -240,6 +205,7 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 		if err != nil {
 			return
 		}
+		affected[owner.SubscriptionID] = true
 	}
 	if err := tx.Commit(); err != nil {
 		slog.Error("traffic commit", "server", serverID, "error", err)
@@ -247,18 +213,13 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 	}
 
 	for _, sub := range subscriptions {
+		if !affected[sub.ID] {
+			continue
+		}
 		total, up, down, e := a.subscriptionUsage(ctx, sub)
-		if e != nil {
-			continue
+		if e == nil && setSubscriptionUsage(&sub, total, up, down) {
+			_, _ = a.DB.SaveRecord(ctx, sub)
 		}
-		if number(sub.Data, "usedBytes") == total {
-			continue
-		}
-		sub.Data["usedBytes"] = total
-		sub.Data["uploadBytes"] = up
-		sub.Data["downloadBytes"] = down
-		sub.Data["used"] = math.Round(total/gib*10000) / 10000
-		_, _ = a.DB.SaveRecord(ctx, sub)
 	}
 	stats["timestamp"] = sampledAt
 	stats["counters"] = counters
@@ -380,15 +341,12 @@ func (a *App) expireSubscriptions(ctx context.Context) {
 			sub.Data["effectiveStatus"] = state
 			mutated = true
 		}
-		if mutated {
-			total, up, down, e := a.subscriptionUsage(ctx, sub)
-			if e == nil {
-				sub.Data["usedBytes"] = total
-				sub.Data["uploadBytes"] = up
-				sub.Data["downloadBytes"] = down
-				sub.Data["used"] = math.Round(total/gib*10000) / 10000
-			}
-			if _, e := a.DB.SaveRecord(ctx, sub); e == nil {
+		// Retry failed display refreshes and rebuild after restart/restore, even
+		// without new traffic. Display-only changes must not reconcile users.
+		total, up, down, usageErr := a.subscriptionUsage(ctx, sub)
+		usageChanged := usageErr == nil && setSubscriptionUsage(&sub, total, up, down)
+		if mutated || usageChanged {
+			if _, e := a.DB.SaveRecord(ctx, sub); e == nil && mutated {
 				changed = true
 			}
 		}
@@ -444,10 +402,6 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		fail(w, 400, "invalid_interval", "统计间隔支持1m或1d")
-		return
-	}
-	if err := a.ensureTrafficSchema(ctx); err != nil {
-		fail(w, 503, "storage_error", "流量台账暂不可用")
 		return
 	}
 	now := time.Now().UTC()

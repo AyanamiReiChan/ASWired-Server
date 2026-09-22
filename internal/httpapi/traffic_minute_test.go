@@ -12,9 +12,6 @@ import (
 func TestTrafficMinuteBucketsPreserveLedgerAndRequireAdmin(t *testing.T) {
 	a, handler, adminToken := controllerFixture(t)
 	ctx := context.Background()
-	if err := a.ensureTrafficSchema(ctx); err != nil {
-		t.Fatal(err)
-	}
 	member := store.User{ID: "minute-member", Username: "minute-member", Role: "user", PasswordHash: "test-hash", TokenVersion: 1}
 	if err := a.DB.CreateUser(ctx, member); err != nil {
 		t.Fatal(err)

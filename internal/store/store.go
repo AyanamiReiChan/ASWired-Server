@@ -119,6 +119,11 @@ func CreateSchema(ctx context.Context, tx *sql.Tx, driver string) error {
 			return err
 		}
 	}
+	if driver == "sqlite" {
+		if err := createTrafficUsageSchema(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, s.bind(`INSERT INTO schema_migrations(version,applied_at) VALUES(?,?) ON CONFLICT(version) DO NOTHING`), 1, stamp(time.Now())); err != nil {
 		return err
 	}

@@ -206,9 +206,6 @@ func TestMembershipTrafficResetMovesWindowWithoutDeletingLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = a.ensureTrafficSchema(ctx); err != nil {
-		t.Fatal(err)
-	}
 	_, err = a.DB.DB().ExecContext(ctx, a.DB.Bind(`INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`), "before-reset", "server", sub.ID, sub.OwnerID, "test", "uplink", 1024, 1, 1024, time.Now().Add(-time.Minute).UnixMilli(), 0, "")
 	if err != nil {
 		t.Fatal(err)

@@ -106,6 +106,9 @@ func TestControllerAuthAndAPIScopes(t *testing.T) {
 func TestControllerBackupRoundTripAndWrongKey(t *testing.T) {
 	a, h, token := controllerFixture(t)
 	ctx := context.Background()
+	if _, err := a.DB.DB().Exec(`INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES('restore-usage','server','restore-sub','','email','uplink',17,1,17,10,0,'')`); err != nil {
+		t.Fatal(err)
+	}
 	u, _ := a.DB.UserByUsername(ctx, "test-admin")
 	_, e := a.DB.SaveRecord(ctx, store.Record{Collection: "certificates", ID: "secret-cert", Data: map[string]any{"name": "fixture", "privateKey": "private-value-never-public"}})
 	if e != nil {
@@ -148,12 +151,21 @@ func TestControllerBackupRoundTripAndWrongKey(t *testing.T) {
 		return rec
 	}
 	requireStatus(t, restore(bad.Bytes()), 400)
+	if _, err := a.DB.DB().Exec(`UPDATE traffic_ledger SET weighted_bytes=99 WHERE id='restore-usage'`); err != nil {
+		t.Fatal(err)
+	}
+	if usage, err := a.DB.SubscriptionUsage(ctx, "restore-sub", 0, 20); err != nil || usage.Total != 99 {
+		t.Fatalf("warm pre-restore cache: %+v %v", usage, err)
+	}
 	rec, _ := a.DB.GetRecord(ctx, "certificates", "secret-cert")
 	rec.Data["privateKey"] = "changed"
 	if _, e = a.DB.SaveRecord(ctx, rec); e != nil {
 		t.Fatal(e)
 	}
 	requireStatus(t, restore(raw), 200)
+	if usage, err := a.DB.SubscriptionUsage(ctx, "restore-sub", 0, 20); err != nil || usage.Total != 17 {
+		t.Fatalf("restore retained stale usage: %+v %v", usage, err)
+	}
 	rec, e = a.DB.GetRecord(ctx, "certificates", "secret-cert")
 	if e != nil || text(rec.Data, "privateKey") != "private-value-never-public" {
 		t.Fatalf("restore failed: %v", e)

@@ -148,9 +148,6 @@ func New(cfg config.Config, db *store.Store) (*App, error) {
 	if _, e = config.LoadOrCreateSecret(filepath.Join(cfg.DataDir, "setup-token")); e != nil {
 		return nil, e
 	}
-	if e = a.ensureTrafficSchema(context.Background()); e != nil {
-		return nil, e
-	}
 	return a, nil
 }
 func (a *App) Start(ctx context.Context) {

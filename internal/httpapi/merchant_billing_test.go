@@ -41,9 +41,6 @@ func TestMerchantResetMinuteBoundary(t *testing.T) {
 func TestMerchantXrayUsesRawBytesFromHostPerspective(t *testing.T) {
 	a, _, _ := controllerFixture(t)
 	ctx := context.Background()
-	if err := a.ensureTrafficSchema(ctx); err != nil {
-		t.Fatal(err)
-	}
 	for i, direction := range []string{"uplink", "downlink"} {
 		_, err := a.DB.DB().ExecContext(ctx, `INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, direction, "server", "sub", "user", "email", direction, (i+1)*100, 5, (i+1)*500, time.Now().UnixMilli(), 0, "")
 		if err != nil {

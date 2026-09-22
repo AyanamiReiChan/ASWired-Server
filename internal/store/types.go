@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,8 @@ type Store struct {
 	db         *sql.DB
 	driver     string
 	encryption *EncryptionCodec
+	usageMu    sync.Mutex
+	usageCache map[string]trafficUsageEntry
 }
 
 type User struct {

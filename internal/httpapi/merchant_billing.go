@@ -76,9 +76,6 @@ func (a *App) merchantCycle(ctx context.Context, cfg store.Record, at time.Time)
 // an audited calibration; host lifetime counters are never called monthly use.
 func (a *App) merchantSample(ctx context.Context, server store.Record, cfg store.Record) (float64, float64, time.Time, string, string, error) {
 	if text(cfg.Data, "source") == "xray" {
-		if err := a.ensureTrafficSchema(ctx); err != nil {
-			return 0, 0, time.Time{}, "", "", err
-		}
 		var up, down sql.NullFloat64
 		var at sql.NullInt64
 		err := a.DB.DB().QueryRowContext(ctx, a.DB.Bind(`SELECT SUM(CASE WHEN direction='downlink' THEN raw_bytes ELSE 0 END),SUM(CASE WHEN direction='uplink' THEN raw_bytes ELSE 0 END),MAX(sampled_at) FROM traffic_ledger WHERE server_id=?`), server.ID).Scan(&up, &down, &at)

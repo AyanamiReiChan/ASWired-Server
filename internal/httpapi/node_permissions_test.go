@@ -237,9 +237,6 @@ func TestMemberNodeAccessRevokedWithInactiveSubscription(t *testing.T) {
 					sub.Data["status"] = "停用"
 				case "quota-exhausted":
 					sub.Data["limit"] = 1
-					if err := a.ensureTrafficSchema(ctx); err != nil {
-						t.Fatal(err)
-					}
 					_, err := a.DB.DB().ExecContext(ctx, a.DB.Bind(`INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`), "node-quota", "server", sub.ID, sub.OwnerID, "fixture", "downlink", int64(2*gib), 1, 2*gib, time.Now().UnixMilli(), 0, "")
 					if err != nil {
 						t.Fatal(err)

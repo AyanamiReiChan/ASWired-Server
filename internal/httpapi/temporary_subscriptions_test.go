@@ -200,9 +200,6 @@ func TestTemporarySubscriptionsInheritQuotaAndNodeWithdrawal(t *testing.T) {
 	}
 	plan.Data["nodeIds"] = []any{"ss-node"}
 	_, _ = a.DB.SaveRecord(ctx, plan)
-	if e = a.ensureTrafficSchema(ctx); e != nil {
-		t.Fatal(e)
-	}
 	_, e = a.DB.DB().ExecContext(ctx, a.DB.Bind(`INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`), "temporary-quota", "server", sub.ID, sub.OwnerID, "fixture", "downlink", int64(11*gib), 1, 11*gib, time.Now().UnixMilli(), 0, "")
 	if e != nil {
 		t.Fatal(e)
