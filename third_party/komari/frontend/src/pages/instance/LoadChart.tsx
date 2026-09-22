@@ -85,6 +85,7 @@ import {
   type MetricChartRow,
 } from "@/utils/metricSeries";
 import { formatBytes } from "@/utils/unitHelper";
+import { formatTrafficBytes } from "@/utils/trafficUnits";
 import type { RecordFormat } from "@/utils/RecordHelper";
 
 type LoadChartProps = {
@@ -104,6 +105,7 @@ type Aggregation =
   | "p95"
   | "p99";
 type MetricKind =
+  | "trafficBytes"
   | "percent"
   | "bytes"
   | "bytesPerSecond"
@@ -383,27 +385,27 @@ const fallbackCatalog: MetricCatalogItem[] = [
   {
     key: "net.total.up",
     label: "Total Upload",
-    kind: "bytes",
+    kind: "trafficBytes",
     unit: "bytes",
     realtimeValue: (record) => record.net_total_up,
   },
   {
     key: "net.total.down",
     label: "Total Download",
-    kind: "bytes",
+    kind: "trafficBytes",
     unit: "bytes",
     realtimeValue: (record) => record.net_total_down,
   },
   {
     key: "traffic.up",
     label: "Traffic Upload",
-    kind: "bytes",
+    kind: "trafficBytes",
     unit: "bytes",
   },
   {
     key: "traffic.down",
     label: "Traffic Download",
-    kind: "bytes",
+    kind: "trafficBytes",
     unit: "bytes",
   },
   {
@@ -495,8 +497,10 @@ const formatValue = (value: unknown, kind: MetricKind) => {
       return `${value.toFixed(2)}%`;
     case "bytes":
       return formatBytes(value);
+    case "trafficBytes":
+      return formatTrafficBytes(value);
     case "bytesPerSecond":
-      return `${formatBytes(value)}/s`;
+      return `${formatTrafficBytes(value)}/s`;
     case "count":
       return `${Math.round(value)}`;
     case "temperature":

@@ -10,7 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, Suspense } from "react";
 const NodeDisplay = React.lazy(() => import("../components/NodeDisplay"));
-import { formatBytes } from "@/utils/unitHelper";
+import { formatTrafficBytes } from "@/utils/trafficUnits";
 import { useLiveData } from "../contexts/LiveDataContext";
 import { useNodeList } from "@/contexts/NodeListContext";
 import Loading from "@/components/loading";
@@ -81,7 +81,7 @@ const Index = () => {
 
     return {
       regionCount: regions.size,
-      trafficText: `↑ ${formatBytes(totalUp)} / ↓ ${formatBytes(totalDown)}`,
+      trafficText: `↑ ${formatTrafficBytes(totalUp)} / ↓ ${formatTrafficBytes(totalDown)}`,
       speedText: `↑ ${formatSpeed(speedUp)} / ↓ ${formatSpeed(speedDown)}`,
     };
   }, [liveData.data, nodeList, onlineSet]);

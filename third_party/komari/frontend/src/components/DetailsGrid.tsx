@@ -7,6 +7,7 @@ import {
 import { useLiveData } from "@/contexts/LiveDataContext";
 import { formatUptime } from "./Node";
 import { formatBytes } from "@/utils/unitHelper";
+import { formatTrafficBytes } from "@/utils/trafficUnits";
 import { Flex, Text, Card } from "@radix-ui/themes";
 import type { Record as LiveRecord } from "@/types/LiveData";
 
@@ -68,11 +69,11 @@ export const DetailsGrid = ({
         <UpDownStack
           className="md:w-64 w-full flex-[0_0_calc(50%-0.5rem)]"
           up={t("nodeCard.networkSpeed")}
-          down={` ↑ ${formatBytes(
+          down={` ↑ ${formatTrafficBytes(
             currentRecord?.network.up || 0
           )}/s
           ↓
-          ${formatBytes(
+          ${formatTrafficBytes(
             currentRecord?.network.down || 0
           )}/s`}
         />
@@ -81,11 +82,11 @@ export const DetailsGrid = ({
           align={align === "center" ? "end" : "start"}
           className="flex-[0_0_calc(50%-0.5rem)]"
             down={`↑
-          ${formatBytes(
+          ${formatTrafficBytes(
               currentRecord?.network.totalUp || 0
             )}
           ↓
-          ${formatBytes(
+          ${formatTrafficBytes(
               currentRecord?.network.totalDown || 0
             )}`}
         />

@@ -34,7 +34,7 @@ func ASWiredSession(c *gin.Context) {
 	}
 	identity, err := aswired.Call(c.Request.Context(), "redeem", map[string]string{"ticket": ticket})
 	if err != nil {
-		c.Redirect(http.StatusSeeOther, aswired.LoginURL())
+		c.Redirect(http.StatusSeeOther, aswired.LoginURL()+"?komari_error=login_failed")
 		return
 	}
 	maxAge := int(time.Until(identity.ExpiresAt).Seconds())

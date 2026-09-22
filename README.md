@@ -20,6 +20,8 @@ Windows 的输出文件改为 `bin/aswired-server.exe`。默认监听 `127.0.0.1
 
 开发前端可访问 `http://localhost:5174`，通过前端代理请求主控。正式部署设置公网 HTTPS 地址和允许来源，详见 [部署与运维](docs/deployment.md)。
 
+实际服务器 IP、个人域名、管理员及节点身份、安装令牌和恢复记录应保存在被忽略的 `.deployment/` 或仓库外。只提交使用示例地址的配置模板；不要提交运行配置、数据库、密钥、SSH 记录或备份。推送前检查暂存内容并扫描 Git 历史；`.gitignore` 不会清除已经提交的文件。
+
 ## 能力与合同
 
 - SQLite 默认持久化，PostgreSQL 可选；敏感 JSON 用独立数据密钥加密。

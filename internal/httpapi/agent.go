@@ -73,7 +73,7 @@ func (a *App) acceptReport(ctx context.Context, report agentwire.Report, transpo
 	previousPeer := a.peers[report.ServerID]
 	directActive := transport == "Pull" && serverConnectionMode(server) == "auto" && previousPeer != nil && previousPeer.Transport == "HTTP" && now.Sub(previousPeer.LastSeen) < 15*time.Second
 	if !directActive {
-		a.peers[report.ServerID] = &peer{LastSeen: now, Transport: transport, Version: report.Version, Mode: report.Mode, ConnectionMode: report.ConnectionMode, Capabilities: report.Capabilities}
+		a.peers[report.ServerID] = &peer{LastSeen: now, Transport: transport, Version: report.Version, Mode: report.Mode, ConnectionMode: report.ConnectionMode, Capabilities: report.Capabilities, SplitHeartbeat: transport == "WebSocket" && report.Stream.Valid()}
 	}
 	a.mu.Unlock()
 	if report.Observation != nil {
@@ -107,7 +107,7 @@ func (a *App) acceptReport(ctx context.Context, report agentwire.Report, transpo
 		reply.ConnectionMode, reply.ListenAddress = desired, agentListenAddress(server)
 	}
 	// Acknowledge prior results before switching, without dispatching more work.
-	if directActive || transport == "HTTP" || (desired != "auto" && !strings.EqualFold(transport, desired)) || (report.ConnectionMode != "" && report.ConnectionMode != desired) {
+	if report.Busy || directActive || transport == "HTTP" || (desired != "auto" && !strings.EqualFold(transport, desired)) || (report.ConnectionMode != "" && report.ConnectionMode != desired) {
 		return reply, nil
 	}
 	a.agentDispatchMu.Lock()
@@ -212,6 +212,8 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	serverID := report.ServerID
+	stream := agentwire.NegotiateStream(report.Stream)
+	report.Stream = stream
 	a.mu.Lock()
 	_, seen := a.handshakes[hello.PublicKey]
 	if !seen {
@@ -240,6 +242,7 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 			_ = conn.Write(ctx, websocket.MessageText, raw)
 			return
 		}
+		reply.Stream = stream
 		packet, e := channel.Seal(reply)
 		if e != nil {
 			return
@@ -252,6 +255,11 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 		e = conn.Write(ioCtx, websocket.MessageText, raw)
 		done()
 		if e != nil {
+			return
+		}
+		if stream != nil {
+			report.Stream = stream
+			a.agentStream(ctx, conn, channel, private, report, reply)
 			return
 		}
 		ioCtx, done = context.WithTimeout(ctx, 120*time.Second)

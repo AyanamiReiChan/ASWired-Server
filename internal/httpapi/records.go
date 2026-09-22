@@ -589,6 +589,9 @@ func (a *App) prepareMember(r *http.Request, id string, row map[string]any, exis
 	if application != "aswired" && application != "komari" {
 		return store.User{}, errors.New("无效的账户类型")
 	}
+	if !exists && application == "komari" {
+		return store.User{}, errors.New("Komari 与 ASWired 共用管理员账户，无需创建独立探针账户")
+	}
 	row["application"] = application
 	username := strings.TrimSpace(text(row, "username"))
 	if username == "" {

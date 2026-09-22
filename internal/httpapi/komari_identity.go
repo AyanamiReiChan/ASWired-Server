@@ -57,13 +57,23 @@ func (a *App) workspaceAccount(ctx context.Context, u store.User) bool {
 	app, err := a.accountApplication(ctx, u)
 	return err == nil && app == "aswired" && a.permittedAdmin(u)
 }
+func (a *App) komariAdmin(ctx context.Context, u store.User) bool {
+	return !u.Disabled && u.Role == "admin" && a.workspaceAccount(ctx, u)
+}
+func (a *App) komariLogin(w http.ResponseWriter, r *http.Request) {
+	if !a.allowAttempt(r) {
+		fail(w, 429, "rate_limited", "尝试过于频繁，请稍后再试")
+		return
+	}
+	a.issueKomari(w, current(r))
+}
 func (a *App) issueKomari(w http.ResponseWriter, u store.User) {
 	if a.Config.KomariPublicURL == "" || a.Config.KomariBridgeSecret == "" {
 		fail(w, 503, "probe_unavailable", "探针服务尚未配置")
 		return
 	}
-	if u.Role != "user" || u.Disabled {
-		fail(w, 403, "forbidden", "账户类型不允许进入探针")
+	if !a.komariAdmin(context.Background(), u) {
+		fail(w, 403, "forbidden", "请使用 ASWired 管理员账户管理 Komari")
 		return
 	}
 	ticket := newID() + newID()
@@ -95,8 +105,7 @@ func (a *App) komariSessionUser(ctx context.Context, rec store.Record) (store.Us
 	if err != nil {
 		return u, err
 	}
-	app, err := a.accountApplication(ctx, u)
-	if err != nil || u.Disabled || u.Role != "user" || app != "komari" || int64(number(rec.Data, "tokenVersion")) != u.TokenVersion {
+	if !a.komariAdmin(ctx, u) || int64(number(rec.Data, "tokenVersion")) != u.TokenVersion {
 		return u, store.ErrNotFound
 	}
 	return u, nil
@@ -159,10 +168,13 @@ func (a *App) komariIntrospect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Logout {
-		if err := a.DB.ConsumeRecord(r.Context(), rec); err != nil && !errors.Is(err, store.ErrConflict) {
+		// Both applications share the account's revocation generation.
+		u.TokenVersion++
+		if err := a.DB.UpdateUser(r.Context(), u); err != nil {
 			fail(w, 503, "storage_error", "无法撤销探针会话，请重试")
 			return
 		}
+		_ = a.DB.ConsumeRecord(r.Context(), rec)
 		respond(w, 200, map[string]bool{"success": true})
 		return
 	}

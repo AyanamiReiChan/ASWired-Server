@@ -8,11 +8,13 @@ ASWired `users` 是唯一密码账户库。首次初始化由管理员选择用�
 
 | 类型 | 角色与用途 |
 | --- | --- |
-| ASWired 管理员 | `application=aswired, role=admin`，管理主控 |
+| ASWired 管理员 | `application=aswired, role=admin`，统一管理 ASWired 与 Komari |
 | ASWired 成员 | `application=aswired, role=user`，成员自助 |
-| Komari 管理账户 | `application=komari, role=user`，登录 Komari 原生后台，无 ASWired 管理权限 |
+| 旧独立 Komari 账户 | 保留历史记录，不再授予后台访问权限，也不自动提升为管理员 |
 
-在 ASWired 用户管理创建 Komari 类型账户，设置独立用户名和密码。该账户从 ASWired 登录页登录后跳转 Komari。统一登录使用有效期一分钟的单次 POST 票据和独立 HttpOnly 会话 Cookie；账户停用、改密和撤销会话会生效。整合模式关闭 Komari 独立密码、SSO 和本地账户创建，不生成默认管理员。
+使用同一个 ASWired 管理员账户。登录后点击侧栏「Komari 管理」，或访问 ASWired 的 `/komari` 页面，由已认证管理员请求 `POST /api/komari/login` 取得一分钟有效、单次使用的 POST 票据，进入 Komari 后台。此操作保留 ASWired 当前登录。普通成员没有 Komari 管理权限，不再创建独立 Komari 类型账户。
+
+Komari 使用独立的 HttpOnly 会话 Cookie，但身份、角色、密码、两步验证和撤销代次都由 ASWired 决定。每次校验会话都会重新确认账户仍是获准的 ASWired 管理员；停用、降权、管理员名单变更、改密会使旧会话和未使用票据失效。从任一后台退出均撤销该账户现有登录。整合模式关闭 Komari 独立密码、SSO 和本地账户创建，不生成默认管理员。登录失败返回明确错误状态，不自动循环换票。
 
 ## 配置
 
@@ -28,7 +30,7 @@ Komari：
 
 ```dotenv
 ASWIRED_IDENTITY_URL=http://127.0.0.1:12889
-ASWIRED_LOGIN_URL=https://panel.example.com
+ASWIRED_LOGIN_URL=https://panel.example.com/komari
 KOMARI_PUBLIC_URL=https://probe.example.com
 # ASWIRED_BRIDGE_SECRET：与主控服务密钥相同
 ```

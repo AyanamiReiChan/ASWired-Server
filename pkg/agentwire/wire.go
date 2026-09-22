@@ -1,6 +1,7 @@
 package agentwire
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
@@ -30,6 +31,8 @@ type Result struct {
 	Data   map[string]any `json:"data,omitempty"`
 }
 type Report struct {
+	Stream         *StreamOptions  `json:"stream,omitempty"`
+	Busy           bool            `json:"busy,omitempty"`
 	ConnectionMode string          `json:"connection_mode,omitempty"`
 	ServerID       string          `json:"server_id"`
 	Token          string          `json:"token"`
@@ -41,11 +44,14 @@ type Report struct {
 	Timestamp      int64           `json:"timestamp"`
 }
 type Reply struct {
-	ConnectionMode string    `json:"connection_mode,omitempty"`
-	ListenAddress  string    `json:"listen_address,omitempty"`
-	Commands       []Command `json:"commands"`
-	Interval       int       `json:"interval"`
-	Error          string    `json:"error,omitempty"`
+	TelemetryAck   uint64         `json:"telemetry_ack,omitempty"`
+	Stream         *StreamOptions `json:"stream,omitempty"`
+	AckResults     []string       `json:"ack_results,omitempty"`
+	ConnectionMode string         `json:"connection_mode,omitempty"`
+	ListenAddress  string         `json:"listen_address,omitempty"`
+	Commands       []Command      `json:"commands"`
+	Interval       int            `json:"interval"`
+	Error          string         `json:"error,omitempty"`
 }
 type Packet struct {
 	Sequence   uint64 `json:"sequence"`
@@ -212,10 +218,23 @@ func nonce(seq uint64) []byte {
 	return n
 }
 func aad(seq uint64) []byte { return append([]byte(Protocol+"|"), nonce(seq)...) }
+
+// Encrypted JSON is never embedded in HTML. Keeping > literal also avoids
+// expanding every separator in Xray counter names into six-byte escapes.
+func marshalPayload(value any) ([]byte, error) {
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	e.SetEscapeHTML(false)
+	if err := e.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
+}
+
 func (c *Channel) Seal(value any) (Packet, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	data, e := json.Marshal(value)
+	data, e := marshalPayload(value)
 	if e != nil {
 		return Packet{}, e
 	}

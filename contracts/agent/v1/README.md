@@ -4,9 +4,11 @@ This is ASWired's own implementation, authorized on 2026-09-15. It does not clai
 
 The master owns a persistent X25519 identity key. An agent pins `master_public_key`, generates a new ephemeral X25519 key for each connection and derives independent AES-256-GCM keys with HKDF-SHA256. The salt binds the protocol and both public keys. Nonces derive from strictly increasing per-direction sequence numbers. Reordered, replayed or unauthenticated frames fail closed. Never reuse an ephemeral key across sessions.
 
-The first encrypted report contains `server_id`, the server token, version, mode, timestamp, actual observations and capabilities. WS `/api/agent/ws` receives a `Hello` first, then alternating report/reply encrypted packets. HTTP `/api/agent/pull` uses a fresh `Hello` per request and returns one encrypted reply. The master caches the ephemeral public keys for the timestamp validity window to reject replays of HTTP handshakes. TLS remains required on public deployments to protect metadata and endpoints.
+The first encrypted report contains `server_id`, the server token, version, mode, timestamp, actual observations and capabilities. WS `/api/agent/ws` receives a `Hello` first, then alternating report/reply encrypted packets unless both peers negotiate the [binary stream extension](../v2/README.md). HTTP `/api/agent/pull` uses a fresh `Hello` per request and returns one encrypted reply. The master caches the ephemeral public keys for the timestamp validity window to reject replays of HTTP handshakes. TLS remains required on public deployments to protect metadata and endpoints.
 
 `Report` and `Reply` types are maintained in `pkg/agentwire`. The Agent repository pins a byte-identical snapshot in `internal/wire`. Update both together and run cross-peer tests when changing the version.
+
+Encrypted payload JSON does not HTML-escape `<`, `>` or `&`; this preserves the JSON data model and is compatible with existing v1 decoders. JSON returned to browsers keeps its normal escaping policy.
 
 Commands identify an operation and action. Result status `success` is permitted only after actual execution; unsupported operations return `unsupported`, failures `failed`. State saved by a controller is not proof of execution. Results of a repeated operation ID are not applied twice. Queued commands and completed results are separate from telemetry.
 

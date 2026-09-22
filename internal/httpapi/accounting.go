@@ -590,5 +590,20 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 	if minutes > 0 {
 		bucketSeconds = 60
 	}
-	respond(w, 200, map[string]any{"series": series, "servers": serverRows, "members": memberRows, "days": days, "interval": interval, "bucketSeconds": bucketSeconds, "from": start, "to": now.UnixMilli(), "unit": "GiB", "source": "xray-ledger", "gaps": gaps, "incomplete": gaps > 0 || sampleCount == 0, "scope": map[bool]string{true: "raw-proxy", false: "weighted-user"}[user.Role == "admin"]})
+	result := map[string]any{"series": series, "servers": serverRows, "members": memberRows, "days": days, "interval": interval, "bucketSeconds": bucketSeconds, "from": start, "to": now.UnixMilli(), "unit": "GiB", "source": "xray-ledger", "gaps": gaps, "incomplete": gaps > 0 || sampleCount == 0, "scope": map[bool]string{true: "raw-proxy", false: "weighted-user"}[user.Role == "admin"]}
+	if r.URL.Query().Get("sync") == "1" {
+		for _, key := range []string{"series", "servers", "members"} {
+			indexed := map[string]any{}
+			for _, item := range result[key].([]any) {
+				row := item.(map[string]any)
+				indexed[text(row, "id")] = row
+			}
+			result[key] = indexed
+		}
+		// Always derive history from the controller ledger. Diffing the complete
+		// projection also picks up late corrections, deletion and rolling expiry.
+		a.browserResponse(w, r, result)
+		return
+	}
+	respond(w, 200, result)
 }

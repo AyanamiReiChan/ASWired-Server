@@ -46,8 +46,10 @@ func (a *App) acceptHomeReport(ctx context.Context, report agentwire.Report, tra
 	a.peers[report.ServerID] = &peer{LastSeen: time.Now(), Transport: transport, Version: report.Version, Mode: "speedtest", Capabilities: report.Capabilities}
 	a.mu.Unlock()
 	// Only publish source metadata reported by the paired runner.
-	observation, _ := a.DB.GetRecord(ctx, "_homeObservations", report.ServerID)
-	_, _ = a.DB.SaveRecord(ctx, store.Record{Collection: "_homeObservations", ID: report.ServerID, Version: observation.Version, Data: map[string]any{"sourceMode": report.Observation["source_mode"], "platform": report.Observation["platform"]}})
+	if report.Observation != nil {
+		observation, _ := a.DB.GetRecord(ctx, "_homeObservations", report.ServerID)
+		_, _ = a.DB.SaveRecord(ctx, store.Record{Collection: "_homeObservations", ID: report.ServerID, Version: observation.Version, Data: map[string]any{"sourceMode": report.Observation["source_mode"], "platform": report.Observation["platform"]}})
+	}
 	for _, result := range report.Results {
 		task, e := a.DB.GetTask(ctx, result.ID)
 		if e != nil || task.ServerID != report.ServerID || (task.Kind != "speedtest.run" && task.Kind != "source.fetch" && task.Kind != "identity.rotate") {
@@ -74,6 +76,9 @@ func (a *App) acceptHomeReport(ctx context.Context, report agentwire.Report, tra
 			previous, _ := a.DB.GetRecord(ctx, "speedtests", result.ID)
 			_, _ = a.DB.SaveRecord(ctx, store.Record{Collection: "speedtests", ID: result.ID, Version: previous.Version, OwnerID: task.ActorID, Data: data})
 		}
+	}
+	if report.Busy {
+		return agentwire.Reply{Interval: 5}, nil
 	}
 	tasks, e := a.DB.ListPendingTasks(ctx, report.ServerID, 30)
 	if e != nil {

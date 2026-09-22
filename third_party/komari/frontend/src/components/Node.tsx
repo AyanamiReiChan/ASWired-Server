@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import Tips from "./ui/tips";
 
 import { formatBytes } from "@/utils/unitHelper";
+import { formatTrafficBytes } from "@/utils/trafficUnits";
 
 /** 格式化秒*/
 export function formatUptime(seconds: number, t: TFunction): string {
@@ -65,11 +66,11 @@ const Node = React.memo(
     ? (liveData.disk.used / basic.disk_total) * 100
     : 0;
 
-  const uploadSpeed = formatBytes(liveData.network.up);
-  const downloadSpeed = formatBytes(liveData.network.down);
-  const totalUpload = formatBytes(liveData.network.totalUp);
-  const totalDownload = formatBytes(liveData.network.totalDown);
-  //const totalTraffic = formatBytes(liveData.network.totalUp + liveData.network.totalDown);
+  const uploadSpeed = formatTrafficBytes(liveData.network.up);
+  const downloadSpeed = formatTrafficBytes(liveData.network.down);
+  const totalUpload = formatTrafficBytes(liveData.network.totalUp);
+  const totalDownload = formatTrafficBytes(liveData.network.totalDown);
+  //const totalTraffic = formatTrafficBytes(liveData.network.totalUp + liveData.network.totalDown);
   return (
     <Card
       style={{
@@ -204,7 +205,7 @@ const Node = React.memo(
                   {basic.traffic_limit_type &&
                     basic.traffic_limit_type.charAt(0).toUpperCase() +
                       basic.traffic_limit_type.slice(1)}
-                  ({formatBytes(basic.traffic_limit)})
+                  ({formatTrafficBytes(basic.traffic_limit)})
                 </Text>
               </Flex>
             </Flex>
@@ -244,7 +245,7 @@ const Node = React.memo(
           </Flex>
           {basic.traffic_limit > 0 && isMobile && (
             <UsageBar
-              label={`${basic.traffic_limit_type && basic.traffic_limit_type.charAt(0).toUpperCase() + basic.traffic_limit_type.slice(1)}(${formatBytes(basic.traffic_limit)})`}
+              label={`${basic.traffic_limit_type && basic.traffic_limit_type.charAt(0).toUpperCase() + basic.traffic_limit_type.slice(1)}(${formatTrafficBytes(basic.traffic_limit)})`}
               max={Infinity}
               value={getTrafficPercentage(
                 liveData.network.totalUp,

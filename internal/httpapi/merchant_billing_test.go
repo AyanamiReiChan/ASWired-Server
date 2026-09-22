@@ -20,6 +20,24 @@ func TestMerchantCalendarAndDirection(t *testing.T) {
 	}
 }
 
+func TestMerchantResetMinuteBoundary(t *testing.T) {
+	cfg := map[string]any{"resetDay": 20, "resetTime": "13:06", "timezone": "Asia/Shanghai"}
+	for _, tc := range []struct{ at, start, end string }{
+		{"2026-10-20T13:05:59+08:00", "2026-09-20T05:06:00Z", "2026-10-20T05:06:00Z"},
+		{"2026-10-20T13:06:00+08:00", "2026-10-20T05:06:00Z", "2026-11-20T05:06:00Z"},
+	} {
+		start, end := merchantPeriod(cfg, dateTime(tc.at))
+		if cycleStamp(start) != tc.start || cycleStamp(end) != tc.end {
+			t.Fatal(tc, start, end)
+		}
+	}
+	for _, invalid := range []string{"24:00", "12:60", "1:00", "13:06:00"} {
+		if _, err := merchantResetClock(invalid); err == nil {
+			t.Fatal("accepted", invalid)
+		}
+	}
+}
+
 func TestMerchantXrayUsesRawBytesFromHostPerspective(t *testing.T) {
 	a, _, _ := controllerFixture(t)
 	ctx := context.Background()

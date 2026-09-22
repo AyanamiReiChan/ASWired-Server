@@ -131,9 +131,13 @@ func (a *App) shouldContactDirect(server store.Record) bool {
 	}
 	a.mu.Lock()
 	p := a.peers[server.ID]
-	activeWS := p != nil && p.Transport == "WebSocket" && time.Since(p.LastSeen) < 15*time.Second
+	grace := 15 * time.Second
+	if p != nil && p.SplitHeartbeat {
+		grace = 3 * agentwire.HeartbeatSeconds * time.Second
+	}
+	activeWS := p != nil && p.Transport == "WebSocket" && time.Since(p.LastSeen) < grace
 	wasHTTP := p != nil && p.Transport == "HTTP"
 	a.mu.Unlock()
 	mode := serverConnectionMode(server)
-	return !activeWS && (mode == "http" || mode == "auto" || wasHTTP)
+	return mode == "http" || !activeWS && (mode == "auto" || wasHTTP)
 }

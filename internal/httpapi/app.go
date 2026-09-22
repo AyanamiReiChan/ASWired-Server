@@ -41,6 +41,8 @@ type App struct {
 	agentUpdateMu               sync.Mutex
 	agentDispatchMu             sync.Mutex
 	xrayCacheMu                 sync.Mutex
+	browserMu                   sync.Mutex
+	browserSnapshots            map[string]browserSnapshot
 	komariMu                    sync.Mutex
 	identity                    *identityState
 	jobs                        map[string]bool
@@ -66,6 +68,7 @@ type rateWindow struct {
 	Count int
 }
 type peer struct {
+	SplitHeartbeat bool
 	ConnectionMode string
 	LastSeen       time.Time
 	Transport      string
@@ -196,6 +199,7 @@ func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/internal/komari/redeem", a.komariBridge(a.komariRedeem))
 	mux.HandleFunc("POST /api/internal/komari/introspect", a.komariBridge(a.komariIntrospect))
+	mux.HandleFunc("POST /api/komari/login", a.withAdmin(a.komariLogin))
 	mux.HandleFunc("GET /api/logs/files", a.withAdmin(a.listLogFiles))
 	mux.HandleFunc("GET /api/logs/entries", a.withAdmin(a.readFileLogs))
 	mux.HandleFunc("POST /api/servers/{id}/logs", a.withAdmin(a.agentFileLogs))
@@ -228,6 +232,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", a.withUser(a.logout))
 	mux.HandleFunc("POST /api/account/password", a.withUser(a.password))
 	mux.HandleFunc("GET /api/state", a.withUser(a.state))
+	mux.HandleFunc("GET /api/state/sync", a.withUser(a.browserState))
+	mux.HandleFunc("GET /api/operations/tasks", a.withAdmin(a.browserTasks))
 	mux.HandleFunc("GET /api/capabilities", a.withUser(a.capabilities))
 	mux.HandleFunc("GET /api/templates/options", a.withUser(a.templateOptions))
 	mux.HandleFunc("GET /api/federation/identity", a.withAdmin(func(w http.ResponseWriter, r *http.Request) {
@@ -532,7 +538,7 @@ func (a *App) issue(w http.ResponseWriter, u store.User) {
 		return
 	}
 	if application == "komari" {
-		a.issueKomari(w, u)
+		fail(w, 403, "forbidden", "Komari 已改为使用 ASWired 管理员账户，请使用管理员账户登录")
 		return
 	}
 	if !a.permittedAdmin(u) {

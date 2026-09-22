@@ -14,7 +14,7 @@ import { ChevronRight, ChevronUp, ChevronDown } from "lucide-react";
 import type { NodeBasicInfo } from "@/contexts/NodeListContext";
 import type { LiveData, Record } from "../types/LiveData";
 import { formatUptime } from "./Node";
-import { formatBytes } from "@/utils/unitHelper";
+import { formatTrafficBytes } from "@/utils/trafficUnits";
 import UsageBar from "./UsageBar";
 import Flag from "./Flag";
 import PriceTags from "./PriceTags";
@@ -448,16 +448,16 @@ const NodeTable: React.FC<NodeTableProps> = ({ nodes, liveData, onlineSet }) => 
                     />
                   </TableCell>
                   <TableCell className="text-center min-w-[80px]">
-                    <label>↑{formatBytes(nodeData.network.up)}/s</label>
+                    <label>↑{formatTrafficBytes(nodeData.network.up)}/s</label>
                   </TableCell>
                   <TableCell className="text-center min-w-[80px]">
-                    <label>↓{formatBytes(nodeData.network.down)}/s</label>
+                    <label>↓{formatTrafficBytes(nodeData.network.down)}/s</label>
                   </TableCell>
                   <TableCell className="text-center min-w-[80px]">
-                    <label>↑{formatBytes(nodeData.network.totalUp)}</label>
+                    <label>↑{formatTrafficBytes(nodeData.network.totalUp)}</label>
                   </TableCell>
                   <TableCell className="text-center min-w-[80px]">
-                    <label>↓{formatBytes(nodeData.network.totalDown)}</label>
+                    <label>↓{formatTrafficBytes(nodeData.network.totalDown)}</label>
                   </TableCell>
                 </TableRow>
 

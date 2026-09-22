@@ -2,8 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AyanamiReiChan/ASWired-Server/internal/store"
@@ -21,7 +24,7 @@ func (a *App) xrayCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	data := map[string]any{"config": nil, "syncedAt": nil, "syncIntervalSeconds": int(xraySyncInterval.Seconds())}
+	data := map[string]any{"config": nil, "syncedAt": nil, "syncMode": "periodic", "syncIntervalSeconds": int(xraySyncInterval.Seconds())}
 	if cache, err := a.DB.GetRecord(r.Context(), "_xrayCache", id); err == nil {
 		for _, key := range []string{"config", "syncedAt", "lastError", "taskId"} {
 			if v, ok := cache.Data[key]; ok {
@@ -35,9 +38,16 @@ func (a *App) xrayCache(w http.ResponseWriter, r *http.Request) {
 	}
 	if observation, err := a.DB.GetRecord(r.Context(), "_observations", id); err == nil {
 		if core, ok := observation.Data["core"].(map[string]any); ok {
+			if configHash(text(core, "config_sha256")) != "" {
+				data["syncMode"] = "on-change"
+			}
 			data["core"] = map[string]any{"running": core["running"], "core_version": core["core_version"]}
 			data["statusAt"] = observation.UpdatedAt
 		}
+	}
+	if r.URL.Query().Get("sync") == "1" {
+		a.browserResponse(w, r, data)
+		return
 	}
 	respond(w, 200, data)
 }
@@ -47,13 +57,29 @@ func (a *App) xrayCache(w http.ResponseWriter, r *http.Request) {
 func (a *App) syncXrayCache(ctx context.Context, id string, now time.Time) {
 	a.xrayCacheMu.Lock()
 	defer a.xrayCacheMu.Unlock()
-	cache, _ := a.DB.GetRecord(ctx, "_xrayCache", id)
+	cache, err := a.DB.GetRecord(ctx, "_xrayCache", id)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return
+	}
 	if cache.Data == nil {
 		cache = store.Record{Collection: "_xrayCache", ID: id, Data: map[string]any{}}
 	}
-	for _, key := range []string{"lastAttempt", "syncedAt"} {
-		if stamp, err := time.Parse(time.RFC3339Nano, text(cache.Data, key)); err == nil && now.Sub(stamp) < xraySyncInterval {
-			return
+	observation, err := a.DB.GetRecord(ctx, "_observations", id)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return
+	}
+	core, _ := observation.Data["core"].(map[string]any)
+	hash := configHash(text(core, "config_sha256"))
+	if hash != "" && hash == text(cache.Data, "sha256") && cache.Data["config"] != nil && cache.Data["syncedAt"] != nil && cache.Data["invalidatedAt"] == nil {
+		return
+	}
+	// A new hash bypasses the retry delay; repeated failures for the same hash
+	// are throttled. Agents without a hash retain the legacy periodic fallback.
+	if hash == "" || hash == text(cache.Data, "lastAttemptHash") {
+		for _, key := range []string{"lastAttempt", "syncedAt"} {
+			if stamp, err := time.Parse(time.RFC3339Nano, text(cache.Data, key)); err == nil && now.Sub(stamp) < xraySyncInterval {
+				return
+			}
 		}
 	}
 	for _, kind := range []string{"core.config.get", "core.config.apply", "core.config.restore"} {
@@ -69,8 +95,19 @@ func (a *App) syncXrayCache(ctx context.Context, id string, now time.Time) {
 		return
 	}
 	cache.Data["lastAttempt"] = now.UTC().Format(time.RFC3339Nano)
+	cache.Data["lastAttemptHash"] = hash
 	cache.Data["taskId"] = task.ID
 	_, _ = a.DB.SaveRecord(ctx, cache)
+}
+
+func configHash(raw string) string {
+	if len(raw) != 64 {
+		return ""
+	}
+	if _, err := hex.DecodeString(raw); err != nil {
+		return ""
+	}
+	return strings.ToLower(raw)
 }
 
 func (a *App) finishXrayCache(ctx context.Context, task store.Task, result agentwire.Result) {
@@ -89,6 +126,7 @@ func (a *App) finishXrayCache(ctx context.Context, task store.Task, result agent
 		}
 		// Keep the previous snapshot available until the applied config is read back.
 		delete(cache.Data, "lastAttempt")
+		delete(cache.Data, "lastAttemptHash")
 		cache.Data["invalidatedAt"] = task.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		cache.Data["previousSyncedAt"] = cache.Data["syncedAt"]
 		delete(cache.Data, "syncedAt")
@@ -102,6 +140,7 @@ func (a *App) finishXrayCache(ctx context.Context, task store.Task, result agent
 		cache.Data["lastAttempt"] = task.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		if cfg, ok := result.Data["config"].(map[string]any); result.Status == "success" && ok {
 			cache.Data["config"] = cfg
+			cache.Data["sha256"] = configHash(text(result.Data, "sha256"))
 			cache.Data["syncedAt"] = task.UpdatedAt.UTC().Format(time.RFC3339Nano)
 			delete(cache.Data, "lastError")
 			delete(cache.Data, "invalidatedAt")

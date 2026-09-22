@@ -23,7 +23,7 @@ func TestUnifiedCallbackOriginAndCookie(t *testing.T) {
 			w.WriteHeader(401)
 			return
 		}
-		var input struct { Ticket string }
+		var input struct{ Ticket string }
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil || input.Ticket != ticket {
 			t.Error("invalid ticket body")
 			w.WriteHeader(400)
@@ -31,7 +31,7 @@ func TestUnifiedCallbackOriginAndCookie(t *testing.T) {
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"session": "kprobe_" + strings.Repeat("x", 64),
-			"id": "probe", "username": "probe",
+			"id":      "probe", "username": "probe",
 			"expiresAt": time.Now().Add(time.Hour),
 		})
 	}))
@@ -56,13 +56,17 @@ func TestUnifiedCallbackOriginAndCookie(t *testing.T) {
 			t.Fatalf("untrusted origin accepted: %q (%d)", origin, out.Code)
 		}
 	}
-	if calls != 0 { t.Fatal("untrusted request reached identity service") }
+	if calls != 0 {
+		t.Fatal("untrusted request reached identity service")
+	}
 	out := request("https://aswired.example.test", "/auth/aswired/session")
 	if out.Code != 303 || out.Header().Get("Location") != "/admin" {
 		t.Fatalf("unexpected redirect: %d", out.Code)
 	}
 	cookies := out.Result().Cookies()
-	if len(cookies) != 1 { t.Fatal("missing session cookie") }
+	if len(cookies) != 1 {
+		t.Fatal("missing session cookie")
+	}
 	cookie := cookies[0]
 	if cookie.Name != "session_token" || !cookie.HttpOnly || !cookie.Secure || cookie.Path != "/" || cookie.SameSite != http.SameSiteLaxMode || cookie.MaxAge <= 0 || cookie.Domain != "" {
 		t.Fatal("unsafe session cookie attributes")
@@ -72,7 +76,7 @@ func TestUnifiedCallbackOriginAndCookie(t *testing.T) {
 	}
 	identity.Close()
 	failed := request("https://aswired.example.test", "/auth/aswired/session")
-	if len(failed.Result().Cookies()) != 0 || failed.Header().Get("Location") != "https://aswired.example.test/login" {
+	if len(failed.Result().Cookies()) != 0 || failed.Header().Get("Location") != "https://aswired.example.test/login?komari_error=login_failed" {
 		t.Fatal("identity service failure did not fail closed")
 	}
 }

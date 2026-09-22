@@ -15,6 +15,16 @@ import (
 
 var merchantMu sync.Mutex
 
+func merchantResetClock(value string) (time.Time, error) {
+	if value == "" {
+		value = "00:00"
+	}
+	if len(value) != 5 {
+		return time.Time{}, errors.New("reset time must be HH:MM")
+	}
+	return time.Parse("15:04", value)
+}
+
 func merchantPeriod(cfg map[string]any, at time.Time) (time.Time, time.Time) {
 	loc, err := time.LoadLocation(defaultText(cfg, "timezone", "Asia/Shanghai"))
 	if err != nil {
@@ -25,9 +35,10 @@ func merchantPeriod(cfg map[string]any, at time.Time) (time.Time, time.Time) {
 	if day < 1 || day > 31 {
 		day = 1
 	}
+	clock, _ := merchantResetClock(text(cfg, "resetTime"))
 	boundary := func(month time.Month) time.Time {
 		last := time.Date(local.Year(), month+1, 0, 0, 0, 0, 0, loc).Day()
-		return time.Date(local.Year(), month, min(day, last), 0, 0, 0, 0, loc).UTC()
+		return time.Date(local.Year(), month, min(day, last), clock.Hour(), clock.Minute(), 0, 0, loc).UTC()
 	}
 	start := boundary(local.Month())
 	if at.Before(start) {
@@ -56,7 +67,7 @@ func (a *App) merchantCycle(ctx context.Context, cfg store.Record, at time.Time)
 	id := merchantCycleID(cfg, start)
 	row, err := a.DB.GetRecord(ctx, "_merchantCycles", id)
 	if errors.Is(err, store.ErrNotFound) {
-		return store.Record{Collection: "_merchantCycles", ID: id, Data: map[string]any{"serverId": cfg.ID, "revision": cfg.Data["revision"], "source": cfg.Data["source"], "direction": cfg.Data["direction"], "resetDay": cfg.Data["resetDay"], "timezone": cfg.Data["timezone"], "limitGB": cfg.Data["limitGB"], "start": cycleStamp(start), "end": cycleStamp(end), "uploadBytes": 0, "downloadBytes": 0, "adjustmentBytes": 0}}, nil
+		return store.Record{Collection: "_merchantCycles", ID: id, Data: map[string]any{"serverId": cfg.ID, "revision": cfg.Data["revision"], "source": cfg.Data["source"], "direction": cfg.Data["direction"], "resetDay": cfg.Data["resetDay"], "resetTime": defaultText(cfg.Data, "resetTime", "00:00"), "timezone": cfg.Data["timezone"], "limitGB": cfg.Data["limitGB"], "start": cycleStamp(start), "end": cycleStamp(end), "uploadBytes": 0, "downloadBytes": 0, "adjustmentBytes": 0}}, nil
 	}
 	return row, err
 }
@@ -252,6 +263,7 @@ func (a *App) merchantBillingSave(w http.ResponseWriter, r *http.Request) {
 		Source    string  `json:"source"`
 		Direction string  `json:"direction"`
 		ResetDay  int     `json:"resetDay"`
+		ResetTime *string `json:"resetTime"`
 		Timezone  string  `json:"timezone"`
 		LimitGB   float64 `json:"limitGB"`
 		Revision  string  `json:"revision"`
@@ -270,6 +282,12 @@ func (a *App) merchantBillingSave(w http.ResponseWriter, r *http.Request) {
 	if _, err := time.LoadLocation(in.Timezone); err != nil || in.ResetDay < 1 || in.ResetDay > 31 || in.LimitGB < 0 || in.LimitGB > 1e9 {
 		fail(w, 400, "invalid_cycle", "账期日期、时区或额度无效")
 		return
+	}
+	if in.ResetTime != nil {
+		if _, err := merchantResetClock(*in.ResetTime); err != nil {
+			fail(w, 400, "invalid_cycle", "重置时间须为 HH:MM（00:00 至 23:59）")
+			return
+		}
 	}
 	ctx, id := r.Context(), r.PathValue("id")
 	server, err := a.DB.GetRecord(ctx, "servers", id)
@@ -300,7 +318,11 @@ func (a *App) merchantBillingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	data := map[string]any{"source": in.Source, "direction": in.Direction, "resetDay": in.ResetDay, "timezone": in.Timezone, "limitGB": in.LimitGB, "revision": newID()}
+	resetTime := defaultText(old.Data, "resetTime", "00:00")
+	if in.ResetTime != nil && *in.ResetTime != "" {
+		resetTime = *in.ResetTime
+	}
+	data := map[string]any{"source": in.Source, "direction": in.Direction, "resetDay": in.ResetDay, "resetTime": resetTime, "timezone": in.Timezone, "limitGB": in.LimitGB, "revision": newID()}
 	cfg := store.Record{Collection: "_merchantBilling", ID: id, Data: data, Version: old.Version}
 	if err = a.collectMerchant(ctx, server, cfg); err != nil {
 		fail(w, 409, "sample_unavailable", err.Error())

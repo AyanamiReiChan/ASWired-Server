@@ -117,3 +117,78 @@ func TestXrayCacheWaitsForRunningConfigTask(t *testing.T) {
 		t.Fatal("queued duplicate while a manual read was running")
 	}
 }
+
+func TestXrayCacheHashChangesRetriesAndRestart(t *testing.T) {
+	a, _, _ := controllerFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	hashA, hashB := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	observe := func(hash string) {
+		t.Helper()
+		old, _ := a.DB.GetRecord(ctx, "_observations", "hashed")
+		_, err := a.DB.SaveRecord(ctx, store.Record{Collection: "_observations", ID: "hashed", Version: old.Version, Data: map[string]any{"core": map[string]any{"config_sha256": hash}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(at time.Time, count int) []store.Task {
+		t.Helper()
+		a.syncXrayCache(ctx, "hashed", at)
+		tasks, err := a.DB.ListPendingTasks(ctx, "hashed", 100)
+		if err != nil || len(tasks) != count {
+			t.Fatalf("wanted %d polls, got %d: %v", count, len(tasks), err)
+		}
+		return tasks
+	}
+	finish := func(task store.Task, status, hash string) {
+		t.Helper()
+		task.Status = "running"
+		if _, err := a.DB.SaveTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+		if !a.finishTask(ctx, "hashed", agentwire.Result{ID: task.ID, Status: status, Data: map[string]any{"config": map[string]any{"tag": hash}, "sha256": hash}}) {
+			t.Fatal("result rejected")
+		}
+	}
+	observe(hashA)
+	task := check(now, 1)[0]
+	check(now.Add(time.Second), 1) // no duplicate while queued
+	finish(task, "success", hashA)
+	check(now.Add(24*time.Hour), 0)
+	// Hash and snapshot are persisted, so a fresh controller does not refetch.
+	restarted := &App{DB: a.DB}
+	restarted.syncXrayCache(ctx, "hashed", now.Add(30*24*time.Hour))
+	if tasks, _ := a.DB.ListPendingTasks(ctx, "hashed", 100); len(tasks) != 0 {
+		t.Fatal("restart forgot cached hash")
+	}
+	observe(hashB)
+	task = check(now.Add(2*time.Second), 1)[0] // bypass the five-minute delay
+	finish(task, "failed", hashB)
+	check(now.Add(3*time.Second), 0)
+	cache, _ := a.DB.GetRecord(ctx, "_xrayCache", "hashed")
+	if text(cache.Data, "sha256") != hashA || cache.Data["config"] == nil {
+		t.Fatal("failure replaced the cached snapshot/hash")
+	}
+	task = check(now.Add(6*time.Minute), 1)[0]
+	finish(task, "success", hashB)
+	check(now.Add(24*time.Hour), 0)
+	// Apply/restore invalidates even when the reported hash has not changed yet.
+	a.finishXrayCache(ctx, store.Task{Kind: "core.config.apply", ServerID: "hashed", UpdatedAt: now.Add(7 * time.Minute)}, agentwire.Result{Status: "success"})
+	check(now.Add(7*time.Minute+time.Second), 1)
+}
+
+func TestXrayCacheBootstrapsLegacySnapshotHash(t *testing.T) {
+	a, _, _ := controllerFixture(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	a.finishXrayCache(ctx, store.Task{Kind: "core.config.get", ServerID: "legacy", CreatedAt: now, UpdatedAt: now}, agentwire.Result{Status: "success", Data: map[string]any{"config": map[string]any{}}})
+	_, err := a.DB.SaveRecord(ctx, store.Record{Collection: "_observations", ID: "legacy", Data: map[string]any{"core": map[string]any{"config_sha256": strings.Repeat("c", 64)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.syncXrayCache(ctx, "legacy", now.Add(time.Second))
+	tasks, _ := a.DB.ListPendingTasks(ctx, "legacy", 100)
+	if len(tasks) != 1 {
+		t.Fatal("missing hash was not refreshed")
+	}
+}
