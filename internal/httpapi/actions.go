@@ -247,7 +247,11 @@ func (a *App) action(w http.ResponseWriter, r *http.Request) {
 	case "komari.test", "komari.sync":
 		result, e = a.syncKomari(ctx, in.Action == "komari.sync")
 	case "system.update":
-		result, e = a.checkRelease(ctx, text(in.Params, "channel") == "prerelease")
+		if boolean(in.Params, "apply") {
+			result, e = a.requestReleaseUpdate(ctx, text(in.Params, "version"), text(in.Params, "channel") == "prerelease")
+		} else {
+			result, e = a.checkRelease(ctx, text(in.Params, "channel") == "prerelease")
+		}
 	default:
 		fail(w, 501, "not_implemented", "该执行能力尚未接通，配置可保存，但不会模拟成功")
 		return

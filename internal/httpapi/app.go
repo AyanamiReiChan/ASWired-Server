@@ -21,6 +21,8 @@ import (
 	"github.com/AyanamiReiChan/ASWired-Server/internal/auth"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/config"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/logfiles"
+	"github.com/AyanamiReiChan/ASWired-Server/internal/releases"
+	"github.com/AyanamiReiChan/ASWired-Server/internal/selfupdate"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/store"
 	"github.com/AyanamiReiChan/ASWired-Server/pkg/agentwire"
 	"github.com/coder/websocket"
@@ -29,6 +31,8 @@ import (
 var Version = "0.2.0-dev"
 
 type App struct {
+	resolveRelease              func(context.Context, bool) (releases.Info, error)
+	updateClient                *selfupdate.Client
 	restart                     chan struct{}
 	LogFiles                    *logfiles.Manager
 	LogStreams                  map[string]*logfiles.Manager
@@ -240,6 +244,7 @@ func (a *App) Handler() http.Handler {
 		respond(w, 200, map[string]string{"masterPublicKey": a.MasterPublic})
 	}))
 	mux.HandleFunc("GET /api/settings", a.withAdmin(a.settingsGet))
+	mux.HandleFunc("GET /api/system/update", a.withAdmin(a.releaseUpdateStatus))
 	mux.HandleFunc("PUT /api/settings", a.withAdmin(a.settingsPut))
 	mux.HandleFunc("GET /api/database/status", a.withAdmin(a.databaseStatus))
 	mux.HandleFunc("POST /api/database/test", a.withAdmin(a.databaseTest))
