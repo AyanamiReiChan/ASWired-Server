@@ -23,6 +23,7 @@ import (
 	"github.com/AyanamiReiChan/ASWired-Server/internal/logfiles"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/releases"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/selfupdate"
+	"github.com/AyanamiReiChan/ASWired-Server/internal/sitecert"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/store"
 	"github.com/AyanamiReiChan/ASWired-Server/pkg/agentwire"
 	"github.com/coder/websocket"
@@ -33,6 +34,9 @@ var Version = "0.2.0-dev"
 type App struct {
 	resolveRelease              func(context.Context, bool) (releases.Info, error)
 	updateClient                *selfupdate.Client
+	siteInspector               *sitecert.Inspector
+	siteCertificateClient       *sitecert.Client
+	siteCertificateMu           sync.Mutex
 	restart                     chan struct{}
 	LogFiles                    *logfiles.Manager
 	LogStreams                  map[string]*logfiles.Manager
@@ -144,6 +148,8 @@ func New(cfg config.Config, db *store.Store) (*App, error) {
 		return nil, e
 	}
 	a := &App{DB: db, Config: cfg, Signer: signer, MasterPrivate: strings.TrimSpace(string(secret)), MasterPublic: pub, peers: map[string]*peer{}, handshakes: map[string]time.Time{}, limits: map[string]*rateWindow{}, client: &http.Client{Timeout: 30 * time.Second}, geoCache: map[string]geoCacheEntry{}}
+	a.siteInspector = sitecert.NewInspector()
+	a.siteCertificateClient = sitecert.NewClient(cfg.DataDir)
 	a.restart = make(chan struct{}, 1)
 	if _, e = config.LoadOrCreateSecret(filepath.Join(cfg.DataDir, "setup-token")); e != nil {
 		return nil, e

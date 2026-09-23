@@ -112,6 +112,16 @@ func (a *App) certificateUpload(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(ordered)
 	tasks := []any{}
 	deploymentErrors := []any{}
+	var siteDeployment any
+	if sites := stringList(asset.Data["websiteTargets"]); len(sites) > 0 && (input.Deploy == nil || *input.Deploy) {
+		material, err := a.DB.GetRecord(r.Context(), "_certificateMaterial", asset.ID)
+		if err == nil {
+			siteDeployment, err = a.deployWebsiteCertificate(r.Context(), asset, material, sites)
+		}
+		if err != nil {
+			deploymentErrors = append(deploymentErrors, map[string]any{"serverId": "网站 HTTPS", "error": err.Error()})
+		}
+	}
 	for _, id := range ordered {
 		if input.Deploy != nil && !*input.Deploy {
 			break
@@ -124,7 +134,7 @@ func (a *App) certificateUpload(w http.ResponseWriter, r *http.Request) {
 		tasks = append(tasks, taskRow(task))
 	}
 	a.audit(r.Context(), current(r), "certificate.upload", asset.ID, map[string]any{"domain": domains[0], "serial": asset.Data["serial"], "deploymentCount": len(tasks)})
-	respond(w, 200, map[string]any{"certificate_id": asset.ID, "row": rowOf(asset, false), "deployments": tasks, "deployment_errors": deploymentErrors, "message": "证书材料已验证保存；部署是否成功请查看节点任务结果"})
+	respond(w, 200, map[string]any{"certificate_id": asset.ID, "row": rowOf(asset, false), "deployments": tasks, "siteDeployment": siteDeployment, "deployment_errors": deploymentErrors, "message": "证书材料已验证保存；部署是否成功请查看网站验证状态或节点任务结果"})
 }
 
 func (a *App) certificateDownload(w http.ResponseWriter, r *http.Request) {

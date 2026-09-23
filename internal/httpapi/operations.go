@@ -109,6 +109,8 @@ func (a *App) completeOperationAttempt(ctx context.Context, id string, result ma
 }
 
 func (a *App) registerOperations(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/admin/certificates/sites", a.withAdmin(a.siteCertificates))
+	mux.HandleFunc("PUT /api/admin/certificates/sites", a.withAdmin(a.configureSiteCertificates))
 	mux.HandleFunc("POST /api/admin/certificates/upload", a.withAdmin(a.certificateUpload))
 	mux.HandleFunc("GET /api/certificates/{id}/download", a.withAdmin(a.certificateDownload))
 	mux.HandleFunc("POST /api/certificates/{id}/{operation}", a.withAdmin(func(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +178,7 @@ func (a *App) operationsAction(ctx context.Context, u store.User, in actionInput
 				} else {
 					result["tasks"] = deployment["tasks"]
 					result["deployment_errors"] = deployment["deployment_errors"]
+					result["siteDeployment"] = deployment["siteDeployment"]
 				}
 			}
 		}

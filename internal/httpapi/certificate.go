@@ -321,6 +321,7 @@ func (a *App) issueCertificate(ctx context.Context, actor store.User, id string,
 			resultRow["message"] = "证书已签发，但自动部署失败：" + err.Error()
 		} else {
 			resultRow["tasks"] = deployment["tasks"]
+			resultRow["siteDeployment"] = deployment["siteDeployment"]
 			resultRow["deployment_errors"] = deployment["deployment_errors"]
 			resultRow["message"] = deployment["message"]
 		}
@@ -407,15 +408,28 @@ func (a *App) deployCertificate(ctx context.Context, actor store.User, id string
 	if _, e = validateCertificatePair(text(material.Data, "certificate"), text(material.Data, "privateKey"), domains); e != nil {
 		return nil, e
 	}
-	ids := stringList(params["serverIds"])
-	if len(ids) == 0 {
-		ids = stringList(asset.Data["serverIds"])
+	ids := stringList(asset.Data["serverIds"])
+	if value, ok := params["serverIds"]; ok {
+		ids = stringList(value)
 	}
-	if len(ids) == 0 {
-		return nil, errors.New("请选择要部署的服务器ID")
+	sites := stringList(asset.Data["websiteTargets"])
+	if value, ok := params["websiteTargets"]; ok {
+		sites = stringList(value)
+	}
+	if len(ids) == 0 && len(sites) == 0 {
+		return nil, errors.New("请选择要部署的网站或节点服务器")
 	}
 	tasks := []any{}
 	deploymentErrors := []any{}
+	var siteDeployment any
+	if len(sites) > 0 {
+		result, err := a.deployWebsiteCertificate(ctx, asset, material, sites)
+		if err != nil {
+			deploymentErrors = append(deploymentErrors, map[string]any{"serverId": "网站 HTTPS", "error": err.Error()})
+		} else {
+			siteDeployment = result
+		}
+	}
 	seen := map[string]bool{}
 	for _, serverID := range ids {
 		if seen[serverID] {
@@ -429,9 +443,9 @@ func (a *App) deployCertificate(ctx context.Context, actor store.User, id string
 		}
 		tasks = append(tasks, taskRow(task))
 	}
-	message := "证书部署指令已排队，以节点结果为准"
+	message := "证书部署指令已排队，请查看网站验证状态或节点任务结果"
 	if len(deploymentErrors) > 0 {
 		message = "部分服务器未能创建部署任务，请查看部署错误"
 	}
-	return map[string]any{"tasks": tasks, "deployment_errors": deploymentErrors, "message": message}, nil
+	return map[string]any{"tasks": tasks, "siteDeployment": siteDeployment, "deployment_errors": deploymentErrors, "message": message}, nil
 }

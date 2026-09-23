@@ -20,13 +20,16 @@ func (a *App) validateCertificateRecord(ctx context.Context, collection string, 
 		return err
 	}
 	row["domains"] = domains
+	if err := a.validateWebsiteTargets(row); err != nil {
+		return err
+	}
 	for _, id := range stringList(row["serverIds"]) {
 		if _, err := a.DB.GetRecord(ctx, "servers", id); err != nil {
 			return fmt.Errorf("部署服务器不存在：%s", id)
 		}
 	}
-	if boolean(row, "autoDeploy") && len(stringList(row["serverIds"])) == 0 {
-		return errors.New("自动部署需要选择至少一台服务器")
+	if boolean(row, "autoDeploy") && len(stringList(row["serverIds"])) == 0 && len(stringList(row["websiteTargets"])) == 0 {
+		return errors.New("自动部署需要选择网站或节点服务器")
 	}
 	manual := text(row, "type") == "manual" || text(row, "provider") == "manual"
 	if manual && !boolean(row, "autoRenew") {
@@ -75,6 +78,17 @@ func (a *App) validateCertificateRecord(ctx context.Context, collection string, 
 }
 
 func (a *App) certificateReferenceCheck(ctx context.Context, collection, id string) error {
+	if collection == "certificates" {
+		for _, binding := range a.siteCertificateClient.Bindings() {
+			if binding.CertificateID == id {
+				return errors.New("网站正在使用此证书，请先部署其他证书或交回外部 HTTPS 管理")
+			}
+		}
+		status := a.siteCertificateClient.Status(ctx)
+		if status.Phase == "queued" || status.Phase == "applying" {
+			return errors.New("网站证书操作尚未完成，暂不能删除证书")
+		}
+	}
 	dependencies := []string{"inbounds", "sites"}
 	if collection == "dnsProviders" {
 		dependencies = []string{"certificates", "servers"}
