@@ -229,6 +229,23 @@ func caddyManagement(cfg map[string]any, host, port string) (string, string, str
 			if !containsHost(object(policy["match"])["sni"], host) {
 				continue
 			}
+			for _, serial := range array(object(policy["certificate_selection"])["serial_number"]) {
+				s, ok := serial.(string)
+				if !ok {
+					continue
+				}
+				for _, rawLoader := range array(object(object(apps["tls"])["certificates"])["load_files"]) {
+					tags := array(object(rawLoader)["tags"])
+					owned, matchesSerial := false, false
+					for _, tag := range tags {
+						owned = owned || tag == "aswired-site-panel" || tag == "aswired-site-komari"
+						matchesSerial = matchesSerial || tag == "aswired-serial-"+s
+					}
+					if owned && matchesSerial {
+						return "aswired", "managed", "由主控证书记录续期并部署到 Caddy；以证书记录的自动续期与自动部署设置为准"
+					}
+				}
+			}
 			for _, tag := range array(object(policy["certificate_selection"])["any_tag"]) {
 				s, _ := tag.(string)
 				if s == "aswired-site-panel" || s == "aswired-site-komari" {

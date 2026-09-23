@@ -135,7 +135,8 @@ func TestCaddyManagementConservativeDetection(t *testing.T) {
 			object(c["apps"])["tls"] = map[string]any{"certificates": map[string]any{"load_files": []any{map[string]any{"certificate": "/private/cert.pem", "key": "/private/key.pem"}}}}
 		}, "unknown"},
 		{"managed", func(c map[string]any) {
-			object(object(object(object(c["apps"])["http"])["servers"])["https"])["tls_connection_policies"] = []any{map[string]any{"match": map[string]any{"sni": []any{"panel.example.test"}}, "certificate_selection": map[string]any{"any_tag": []any{"aswired-site-panel"}}}}
+			object(object(object(object(c["apps"])["http"])["servers"])["https"])["tls_connection_policies"] = []any{map[string]any{"match": map[string]any{"sni": []any{"panel.example.test"}}, "certificate_selection": map[string]any{"serial_number": []any{"42"}}}}
+			object(c["apps"])["tls"] = map[string]any{"certificates": map[string]any{"load_files": []any{map[string]any{"tags": []any{"aswired-site-panel", "aswired-serial-42"}}}}}
 		}, "managed"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
