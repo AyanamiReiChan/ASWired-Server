@@ -68,6 +68,22 @@
 - 管理员趋势和服务器表使用 Xray 代理原始流量，成员表使用加权流量；主机网卡观测仍只是探针指标，不能替代用户账目或整机容量。
 - 周期边界跨越两次采样时，增量记入后一次采样所在周期。不可恢复的时间拆分没有伪造为精确秒级分摊，缺口数会在统计响应中显示。
 
+### 内部中转分类
+
+管理员可以为落地服务器的内部 Xray 账号登记线路名称。分类严格匹配 `serverId + email`，不按账号前缀、服务器名称或流量大小自动推断。同名账号在另一台服务器上仍保持原来的归属。
+
+- `GET /api/traffic/internal-transfers` 返回 `{ "items": [...] }`。
+- `POST /api/traffic/internal-transfers` 接受 `serverId`、`email`、`name` 和可选的 `sourceServerId`，返回该分类对象。重复提交同一个服务器和账号会更新原分类，不产生重复记录。`email` 是 Xray 统计标识，不要求是互联网邮箱地址。
+- `DELETE /api/traffic/internal-transfers/{id}` 删除分类，历史统计中的该账号重新显示为未归属。以上接口仅限管理员，API 令牌写操作还需要 `write` 权限。
+
+分类存入加密实体集合 `_trafficInternalTransfers`。服务器必须存在且为原生服务器；当前成员订阅使用的账号、对应入站账号，以及已有成员/订阅归属的台账账号不能登记为内部中转。
+
+`GET /api/traffic` 的 `internal` 和 `unassigned` 分别提供按服务器、账号汇总的内部中转和未知流量。行字段为 `id`、`name`、`serverId`、`serverName`、`email`、`up`、`down`、`used`、`limit:null` 和 `source`；内部中转另有 `classificationId`，登记来源服务器时还有 `sourceServerId`、`sourceServerName`。上传/下载为原始字节，`used` 为 GiB。`sync=1` 时这两个集合与原有集合一样按 `id` 索引，分类变更和删除会进入增量响应。
+
+分类只投影 `owner_id='' AND subscription_id=''` 的台账，不重写原始记录、冻结倍率或成员额度。确认后的内部账号不再混入成员表的“未归属流量”；其余未知账号仍保留该汇总行，同时列出明细。服务器表和总趋势继续包含所有实际代理流量，因此串联线路的不同服务器仍分别保留各自观察到的字节，不应把这份原始总量当作成员计费用量。
+
+登记之后的新内部账号计数使用原始倍率 1，不再因缺少成员归属产生 `unassigned_email` 缺口，零增量仍推进游标而不写台账。核心重启、计数下降等真实缺口继续记录。历史缺口全部保留：旧版本的未归属原因可能覆盖过同一次采样的核心变化，无法仅凭新分类证明历史采样完整。
+
 ## 客户端与模板
 
 当前可分发的节点统一为 VLESS TCP REALITY，支持 Clash/Mihomo、sing-box、Egern、V2Ray 和 Shadowrocket 格式。V2Ray/Shadowrocket 使用 Base64 URI 订阅；sing-box 是 JSON；Clash/Mihomo 和 Egern 是 YAML。其他客户端格式不能保留当前 REALITY 配置时明确拒绝；格式名称并不代表允许其他节点协议。

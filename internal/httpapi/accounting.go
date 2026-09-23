@@ -85,6 +85,10 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 	if err != nil || !nativeServer(server) {
 		return
 	}
+	internalTransfers, err := a.trafficInternalIndex(ctx)
+	if err != nil {
+		return
+	}
 	serverFactor := number(server.Data, "multiplier")
 	if serverFactor <= 0 {
 		serverFactor = 1
@@ -191,8 +195,10 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 		}
 		if !known {
 			owner = trafficOwner{Factor: 1}
-			gapReason = "unassigned_email"
-			gap = 1
+			if _, internal := internalTransfers[trafficPairID(serverID, parts[1])]; !internal && gap == 0 {
+				gapReason = "unassigned_email"
+				gap = 1
+			}
 		}
 		weighted := float64(delta) * owner.Factor
 		if math.IsNaN(weighted) || math.IsInf(weighted, 0) {
@@ -409,7 +415,12 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 	if minutes > 0 {
 		start = now.Truncate(time.Minute).Add(-time.Duration(minutes-1) * time.Minute).UnixMilli()
 	}
-	query := `SELECT server_id,owner_id,subscription_id,direction,raw_bytes,weighted_bytes,sampled_at,gap FROM traffic_ledger WHERE sampled_at>=? AND sampled_at<=?`
+	internalTransfers, err := a.trafficInternalIndex(ctx)
+	if err != nil {
+		fail(w, 503, "storage_error", "内部中转分类读取失败")
+		return
+	}
+	query := `SELECT server_id,owner_id,subscription_id,email,direction,raw_bytes,weighted_bytes,sampled_at,gap FROM traffic_ledger WHERE sampled_at>=? AND sampled_at<=?`
 	args := []any{start, now.UnixMilli()}
 	if user.Role != "admin" {
 		query += ` AND owner_id=?`
@@ -427,6 +438,9 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 	}
 	servers := map[string]*usage{}
 	members := map[string]*usage{}
+	internal := map[string]*usage{}
+	unassigned := map[string]*usage{}
+	pairRows := map[string]map[string]any{}
 	buckets := map[int64]*usage{}
 	gaps := 0
 	sampleCount := 0
@@ -435,11 +449,11 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 		location = time.FixedZone("Asia/Shanghai", 8*60*60)
 	}
 	for rows.Next() {
-		var serverID, ownerID, subID, direction string
+		var serverID, ownerID, subID, email, direction string
 		var raw, weighted float64
 		var at int64
 		var gap int
-		if err := rows.Scan(&serverID, &ownerID, &subID, &direction, &raw, &weighted, &at, &gap); err != nil {
+		if err := rows.Scan(&serverID, &ownerID, &subID, &email, &direction, &raw, &weighted, &at, &gap); err != nil {
 			rows.Close()
 			fail(w, 503, "storage_error", "流量台账读取失败")
 			return
@@ -451,7 +465,28 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 		if servers[serverID] == nil {
 			servers[serverID] = &usage{}
 		}
-		if members[ownerID] == nil {
+		var pairUsage *usage
+		isInternal := false
+		if user.Role == "admin" && ownerID == "" && subID == "" {
+			pairID := trafficPairID(serverID, email)
+			if classification, exists := internalTransfers[pairID]; exists {
+				isInternal = true
+				if internal[pairID] == nil {
+					internal[pairID] = &usage{}
+					pairRows[pairID] = trafficInternalRow(classification)
+					pairRows[pairID]["classificationId"] = classification.ID
+					pairRows[pairID]["source"] = "Xray内部中转原始流量"
+				}
+				pairUsage = internal[pairID]
+			} else {
+				if unassigned[pairID] == nil {
+					unassigned[pairID] = &usage{}
+					pairRows[pairID] = map[string]any{"id": pairID, "serverId": serverID, "email": email, "name": email, "source": "Xray未归属用户流量"}
+				}
+				pairUsage = unassigned[pairID]
+			}
+		}
+		if !isInternal && members[ownerID] == nil {
 			members[ownerID] = &usage{}
 		}
 		stamp := time.UnixMilli(at).In(location)
@@ -469,11 +504,21 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 		}
 		if direction == "uplink" {
 			servers[serverID].Up += raw
-			members[ownerID].Up += weighted
+			if !isInternal {
+				members[ownerID].Up += weighted
+			}
+			if pairUsage != nil {
+				pairUsage.Up += raw
+			}
 			buckets[bucket].Up += bucketValue
 		} else {
 			servers[serverID].Down += raw
-			members[ownerID].Down += weighted
+			if !isInternal {
+				members[ownerID].Down += weighted
+			}
+			if pairUsage != nil {
+				pairUsage.Down += raw
+			}
 			buckets[bucket].Down += bucketValue
 		}
 	}
@@ -499,6 +544,7 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 		series = append(series, map[string]any{"id": date, "date": date, "at": at, "time": stamp.Format(time.RFC3339), "gap": v.Gap, "up": v.Up / gib, "down": v.Down / gib, "total": (v.Up + v.Down) / gib})
 	}
 	serverRows := []any{}
+	serverNames := map[string]string{}
 	if user.Role == "admin" {
 		records, err := a.DB.ListRecords(ctx, "servers", "")
 		if err != nil {
@@ -506,10 +552,30 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, rec := range records {
+			serverNames[rec.ID] = text(rec.Data, "name")
 			if v := servers[rec.ID]; v != nil {
 				serverRows = append(serverRows, map[string]any{"id": rec.ID, "name": text(rec.Data, "name"), "up": v.Up, "down": v.Down, "used": (v.Up + v.Down) / gib, "limit": nil, "source": "Xray代理原始流量", "capacityKnown": false})
 			}
 		}
+	}
+	pairUsageRows := func(usages map[string]*usage) []any {
+		result := []any{}
+		ids := make([]string, 0, len(usages))
+		for id := range usages {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			v := usages[id]
+			row := pairRows[id]
+			row["serverName"] = serverNames[text(row, "serverId")]
+			if source := text(row, "sourceServerId"); source != "" {
+				row["sourceServerName"] = serverNames[source]
+			}
+			row["up"], row["down"], row["used"], row["limit"] = v.Up, v.Down, (v.Up+v.Down)/gib, nil
+			result = append(result, row)
+		}
+		return result
 	}
 	memberRows := []any{}
 	ids := []string{}
@@ -544,9 +610,9 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 	if minutes > 0 {
 		bucketSeconds = 60
 	}
-	result := map[string]any{"series": series, "servers": serverRows, "members": memberRows, "days": days, "interval": interval, "bucketSeconds": bucketSeconds, "from": start, "to": now.UnixMilli(), "unit": "GiB", "source": "xray-ledger", "gaps": gaps, "incomplete": gaps > 0 || sampleCount == 0, "scope": map[bool]string{true: "raw-proxy", false: "weighted-user"}[user.Role == "admin"]}
+	result := map[string]any{"series": series, "servers": serverRows, "members": memberRows, "internal": pairUsageRows(internal), "unassigned": pairUsageRows(unassigned), "days": days, "interval": interval, "bucketSeconds": bucketSeconds, "from": start, "to": now.UnixMilli(), "unit": "GiB", "source": "xray-ledger", "gaps": gaps, "incomplete": gaps > 0 || sampleCount == 0, "scope": map[bool]string{true: "raw-proxy", false: "weighted-user"}[user.Role == "admin"]}
 	if r.URL.Query().Get("sync") == "1" {
-		for _, key := range []string{"series", "servers", "members"} {
+		for _, key := range []string{"series", "servers", "members", "internal", "unassigned"} {
 			indexed := map[string]any{}
 			for _, item := range result[key].([]any) {
 				row := item.(map[string]any)
