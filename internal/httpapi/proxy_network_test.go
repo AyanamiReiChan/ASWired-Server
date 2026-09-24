@@ -65,16 +65,13 @@ func TestProxyNetworkGeneratedPolicyPreservesTransportAndInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := protected["routing"].(map[string]any)["rules"].([]any)
-	if len(rules) != 3 || text(rules[0].(map[string]any), "outboundTag") != "api" || text(rules[1].(map[string]any), "ruleTag") != proxyIPv6BlockTag {
-		t.Fatalf("wrong rule order: %v", rules)
+	if !reflect.DeepEqual(protected["routing"], cfg["routing"]) {
+		t.Fatalf("proxy policy changed user routing: %v", rules)
 	}
-	if !reflect.DeepEqual(rules[1].(map[string]any)["inboundTag"], []any{"client"}) {
-		t.Fatal("guard could match API or internal DNS")
-	}
-	if !reflect.DeepEqual(protected["dns"], cfg["dns"]) || !reflect.DeepEqual(protected["outbounds"].([]any)[:2], cfg["outbounds"]) {
+	if !reflect.DeepEqual(protected["dns"], cfg["dns"]) || !reflect.DeepEqual(protected["outbounds"], cfg["outbounds"]) {
 		t.Fatal("proxy business policy changed transport settings")
 	}
-	rules[2].(map[string]any)["domain"] = []any{"full:changed.test"}
+	rules[1].(map[string]any)["domain"] = []any{"full:changed.test"}
 	after, _ := json.Marshal(cfg)
 	if string(before) != string(after) {
 		t.Fatal("generated policy mutated custom source config")
@@ -103,6 +100,33 @@ func TestProxyNetworkCompilerDoesNotMutateStoredGlobalRouting(t *testing.T) {
 	after, _ := json.Marshal(server.Data)
 	if string(before) != string(after) {
 		t.Fatal("compilation changed server globalConfig")
+	}
+}
+
+func TestProxyNetworkCompilerPreservesDualStackRoutingModes(t *testing.T) {
+	for _, strategy := range []string{"IPOnDemand", "IPIfNonMatch"} {
+		t.Run(strategy, func(t *testing.T) {
+			a, _, _ := controllerFixture(t)
+			ctx := context.Background()
+			if _, err := a.DB.SaveRecord(ctx, store.Record{Collection: "inbounds", ID: "dual-stack-entry", Data: realityInboundFixtureData()}); err != nil {
+				t.Fatal(err)
+			}
+			routing := map[string]any{"domainStrategy": strategy, "rules": []any{map[string]any{"type": "field", "ip": []any{"127.0.0.1/32"}, "outboundTag": "direct"}}}
+			server := store.Record{ID: "server", Data: map[string]any{"globalConfig": map[string]any{"routing": routing}}}
+			compiled, err := a.compileServer(ctx, server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(compiled["inbounds"].([]any)) != 1 {
+				t.Fatal("fixture must compile a real managed client inbound")
+			}
+			if !reflect.DeepEqual(compiled["routing"], routing) || len(compiled["outbounds"].([]any)) != 2 {
+				t.Fatal("automatic IPv6 blackhole changed dual-stack routing")
+			}
+			if !boolean(compiled["aswired"].(map[string]any), "blockProxyIPv6") {
+				t.Fatal("destination guard policy missing")
+			}
+		})
 	}
 }
 

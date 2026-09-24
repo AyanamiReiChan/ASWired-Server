@@ -9,24 +9,6 @@ import (
 	"github.com/AyanamiReiChan/ASWired-Server/pkg/agentwire"
 )
 
-const proxyIPv6BlockTag = "aswired-block-ipv6"
-
-func stripProxyNetworkRules(config map[string]any) {
-	route, _ := config["routing"].(map[string]any)
-	rules, ok := route["rules"].([]any)
-	if !ok {
-		return
-	}
-	kept := make([]any, 0, len(rules))
-	for _, item := range rules {
-		rule, _ := item.(map[string]any)
-		if text(rule, "ruleTag") != proxyIPv6BlockTag {
-			kept = append(kept, item)
-		}
-	}
-	route["rules"] = kept
-}
-
 func (a *App) proxyIPv6Blocked(ctx context.Context) (bool, error) {
 	var settings map[string]any
 	if err := a.DB.GetSetting(ctx, "settings", &settings); err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -57,59 +39,10 @@ func applyProxyNetworkDefaults(config map[string]any, blocked bool) (map[string]
 	}
 	metadata["blockProxyIPv6"] = blocked
 	cfg["aswired"] = metadata
-	stripProxyNetworkRules(cfg)
-	if !blocked {
-		return cfg, nil
-	}
-	api, _ := cfg["api"].(map[string]any)
-	tags := []any{}
-	inputs, err := routeObjects(cfg["inbounds"], "inbounds")
-	if err != nil {
-		return nil, err
-	}
-	for _, input := range inputs {
-		tag := text(input.(map[string]any), "tag")
-		if tag != "" && (text(api, "tag") == "" || tag != text(api, "tag")) {
-			tags = append(tags, tag)
-		}
-	}
-	// No listener means no client traffic. Do not create a catch-all rule that
-	// would accidentally match the core's own DNS or observation connections.
-	if len(tags) == 0 {
-		return cfg, nil
-	}
-	outs, err := routeObjects(cfg["outbounds"], "outbounds")
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range outs {
-		if text(item.(map[string]any), "tag") == proxyIPv6BlockTag {
-			return nil, errors.New("出站标签 aswired-block-ipv6 为系统保留，请重命名自定义出站")
-		}
-	}
-	cfg["outbounds"] = append(outs, map[string]any{"tag": proxyIPv6BlockTag, "protocol": "blackhole"})
-	route, _ := cfg["routing"].(map[string]any)
-	if route == nil {
-		route = map[string]any{}
-	}
-	rules, err := routeObjects(route["rules"], "rules")
-	if err != nil {
-		return nil, err
-	}
-	apiRules, trafficRules := []any{}, []any{}
-	for _, item := range rules {
-		rule := item.(map[string]any)
-		if text(rule, "ruleTag") == proxyIPv6BlockTag {
-			continue
-		}
-		if text(rule, "outboundTag") == "api" || text(api, "tag") != "" && text(rule, "outboundTag") == text(api, "tag") {
-			apiRules = append(apiRules, item)
-		} else {
-			trafficRules = append(trafficRules, item)
-		}
-	}
-	route["rules"] = append(append(apiRules, map[string]any{"type": "field", "ruleTag": proxyIPv6BlockTag, "inboundTag": tags, "ip": []any{"::/0"}, "outboundTag": proxyIPv6BlockTag}), trafficRules...)
-	cfg["routing"] = route
+	// A router ::/0 rule would also match the AAAA answers of dual-stack
+	// domains under IPOnDemand/IPIfNonMatch, rejecting usable IPv4 websites.
+	// Capability-gated Agent enforcement checks the actual client destination
+	// after route selection instead, preserving user routing and DNS semantics.
 	return cfg, nil
 }
 

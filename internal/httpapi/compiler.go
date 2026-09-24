@@ -109,7 +109,6 @@ func (a *App) compileServerExcluding(ctx context.Context, server store.Record, v
 	if e != nil {
 		return nil, e
 	}
-	stripProxyNetworkRules(cfg)
 	if err := prepareRouting(cfg, text(server.Data, "routingDefaultOutbound")); err != nil && validate {
 		return nil, err
 	}
