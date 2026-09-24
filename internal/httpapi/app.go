@@ -25,6 +25,7 @@ import (
 	"github.com/AyanamiReiChan/ASWired-Server/internal/selfupdate"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/sitecert"
 	"github.com/AyanamiReiChan/ASWired-Server/internal/store"
+	"github.com/AyanamiReiChan/ASWired-Server/internal/upgradebackups"
 	"github.com/AyanamiReiChan/ASWired-Server/pkg/agentwire"
 	"github.com/coder/websocket"
 )
@@ -34,6 +35,7 @@ var Version = "0.2.0-dev"
 type App struct {
 	resolveRelease              func(context.Context, bool) (releases.Info, error)
 	updateClient                *selfupdate.Client
+	upgradeBackupClient         *upgradebackups.Client
 	siteInspector               *sitecert.Inspector
 	siteCertificateClient       *sitecert.Client
 	siteCertificateMu           sync.Mutex
@@ -248,6 +250,9 @@ func (a *App) Handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /api/settings", a.withAdmin(a.settingsGet))
 	mux.HandleFunc("GET /api/system/update", a.withAdmin(a.releaseUpdateStatus))
+	mux.HandleFunc("GET /api/system/upgrade-backups", a.withAdmin(a.upgradeBackupStatus))
+	mux.HandleFunc("POST /api/system/upgrade-backups/refresh", a.withAdmin(a.upgradeBackupRefresh))
+	mux.HandleFunc("DELETE /api/system/upgrade-backups/{id}", a.withAdmin(a.upgradeBackupDelete))
 	mux.HandleFunc("PUT /api/settings", a.withAdmin(a.settingsPut))
 	mux.HandleFunc("GET /api/database/status", a.withAdmin(a.databaseStatus))
 	mux.HandleFunc("POST /api/database/test", a.withAdmin(a.databaseTest))
@@ -396,7 +401,7 @@ func (a *App) withUser(next http.HandlerFunc) http.HandlerFunc {
 				fail(w, 403, "forbidden", "此账户不能访问 ASWired 工作区")
 				return
 			}
-			if strings.HasPrefix(r.URL.Path, "/api/database/") || strings.HasPrefix(r.URL.Path, "/api/account/") || strings.HasPrefix(r.URL.Path, "/api/auth/") || r.URL.Path == "/api/logout" {
+			if strings.HasPrefix(r.URL.Path, "/api/database/") || strings.HasPrefix(r.URL.Path, "/api/account/") || strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/system/upgrade-backups") || r.URL.Path == "/api/logout" {
 				fail(w, 403, "session_required", "此操作需要网页登录会话")
 				return
 			}
