@@ -152,6 +152,8 @@ func validateLimitConfiguration(row map[string]any) error {
 }
 
 func (a *App) registerLimitRules(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/limits/rules", a.withAdmin(a.limitRulesCatalog))
+	mux.HandleFunc("GET /api/limits/triggers", a.withAdmin(a.limitTriggers))
 	for path, collection := range map[string]string{"/api/limits/effective": "_effectiveLimits", "/api/limits/events": "_limitEvents"} {
 		c := collection
 		mux.HandleFunc("GET "+path, a.withAdmin(func(w http.ResponseWriter, r *http.Request) {
@@ -416,7 +418,9 @@ func (a *App) evaluateBehavior(ctx context.Context, serverID string, stats map[s
 			}
 			if trigger {
 				progress = behaviorProgress{Until: at + int64(rule.PenaltySeconds*1000), LimitMbps: rule.LimitMbps, Priority: rule.Priority, Notify: rule.Notify, Source: rule.Source}
-				events = append(events, limitEvent(userID, serverID, rule.ID, "triggered", rule.Type, progress, rate, at))
+				event := limitEvent(userID, serverID, rule.ID, "triggered", rule.Type, progress, rate, at)
+				event.Data["rule"] = rule
+				events = append(events, event)
 			}
 			state.Rules[rule.ID] = progress
 		}
@@ -614,6 +618,9 @@ func (a *App) noteQuotaState(ctx context.Context, sub, plan store.Record, over b
 			notify = v == true
 		}
 		event := limitEvent(sub.OwnerID, "", sub.ID, kind, reason, behaviorProgress{LimitMbps: speed, Notify: notify, Source: "subscription:" + sub.ID}, 0, time.Now().UnixMilli())
+		if over {
+			event.Data["rule"] = map[string]any{"id": sub.ID, "kind": "quota", "quotaGB": number(sub.Data, "limit"), "quotaMode": map[bool]string{true: "throttle", false: "stop"}[speed > 0], "limitMbps": speed}
+		}
 		records = append(records, event)
 	}
 	if _, err := a.DB.CompareAndSaveRecords(ctx, records); err == nil && len(records) > 1 {

@@ -63,6 +63,10 @@ func TestSustainedRulesTriggerOnceReleaseAndApplyRealPolicy(t *testing.T) {
 	if len(events) != 1 || text(events[0].Data, "reason") != "sustained" {
 		t.Fatalf("missing exact-threshold sustained trigger: %v", events)
 	}
+	snapshot, _ := events[0].Data["rule"].(map[string]any)
+	if text(snapshot, "id") != "global/sustained" || number(snapshot, "thresholdMbps") != 8 || number(snapshot, "durationSeconds") != 10 || number(snapshot, "limitMbps") != 2 || number(snapshot, "penaltySeconds") != 30 {
+		t.Fatalf("trigger did not persist its original rule: %v", snapshot)
+	}
 	stateRecord, _ := a.DB.GetRecord(ctx, "_limitState", "server/"+sub.OwnerID)
 	state := readBehaviorState(stateRecord.Data)
 	until := state.Rules["global/sustained"].Until
@@ -214,6 +218,14 @@ func TestQuotaThrottleRestoreAndUnavailableEnforcementStops(t *testing.T) {
 	events, _ := a.DB.ListRecords(ctx, "_limitEvents", sub.OwnerID)
 	if len(events) != 2 {
 		t.Fatalf("quota trigger/release events missing: %d", len(events))
+	}
+	for _, event := range events {
+		if text(event.Data, "type") == "quota_triggered" {
+			snapshot, _ := event.Data["rule"].(map[string]any)
+			if text(snapshot, "kind") != "quota" || text(snapshot, "quotaMode") != "throttle" || number(snapshot, "quotaGB") != float64(100)/gib || number(snapshot, "limitMbps") != 2 {
+				t.Fatalf("quota trigger lost original quota after expansion: %v", snapshot)
+			}
+		}
 	}
 }
 

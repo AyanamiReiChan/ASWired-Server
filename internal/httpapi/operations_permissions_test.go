@@ -41,7 +41,7 @@ func TestOperationsReadRequiresAdminForJWTAndAPITokens(t *testing.T) {
 		}
 	}
 	for _, token := range []string{memberToken, apiToken} {
-		for _, path := range []string{"/api/limits/effective", "/api/limits/events", "/api/traffic?range=1h&interval=1m", "/api/traffic?range=30d", "/api/collections/tasks/task-ops-member", "/api/collections/tasks/task-another-member", "/api/collections/tasks/missing-task"} {
+		for _, path := range []string{"/api/limits/rules", "/api/limits/triggers", "/api/limits/effective", "/api/limits/events", "/api/traffic?range=1h&interval=1m", "/api/traffic?range=30d", "/api/collections/tasks/task-ops-member", "/api/collections/tasks/task-another-member", "/api/collections/tasks/missing-task"} {
 			requireStatus(t, controllerRequest(t, h, http.MethodGet, path, token, nil), http.StatusForbidden)
 		}
 		for _, collection := range operationCollections {
@@ -61,7 +61,7 @@ func TestOperationsReadRequiresAdminForJWTAndAPITokens(t *testing.T) {
 			t.Fatal("member workspace leaked task data")
 		}
 	}
-	for _, path := range []string{"/api/limits/effective", "/api/limits/events", "/api/traffic?range=1h&interval=1m", "/api/collections/tasks/task-ops-member"} {
+	for _, path := range []string{"/api/limits/rules", "/api/limits/triggers", "/api/limits/effective", "/api/limits/events", "/api/traffic?range=1h&interval=1m", "/api/collections/tasks/task-ops-member"} {
 		requireStatus(t, controllerRequest(t, h, http.MethodGet, path, adminToken, nil), http.StatusOK)
 	}
 	adminState := responseMap(t, controllerRequest(t, h, http.MethodGet, "/api/state", adminToken, nil))["data"].(map[string]any)
