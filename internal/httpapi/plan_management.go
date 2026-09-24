@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -114,7 +113,6 @@ func (a *App) planNodeQuotaExceeded(ctx context.Context, sub store.Record, plan 
 	if end.IsZero() {
 		end = time.Now().AddDate(100, 0, 0)
 	}
-	var used sql.NullFloat64
-	err := a.DB.DB().QueryRowContext(ctx, a.DB.Bind(`SELECT SUM(weighted_bytes) FROM traffic_ledger WHERE subscription_id=? AND email=? AND sampled_at>=? AND sampled_at<?`), sub.ID, text(sub.Data, "credentialEmail")+"."+inboundID, start.UnixMilli(), end.UnixMilli()).Scan(&used)
-	return used.Float64 >= limit*gib, err
+	used, err := a.DB.NodeTrafficUsage(ctx, sub.ID, text(sub.Data, "credentialEmail")+"."+inboundID, start.UnixMilli(), end.UnixMilli())
+	return used >= limit*gib, err
 }

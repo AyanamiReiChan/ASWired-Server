@@ -100,6 +100,10 @@ func (s *Store) queryTrafficUsage(ctx context.Context, q trafficQuerier, subscri
 // results in the same transaction. Rollbacks also roll back invalidation.
 func createTrafficUsageSchema(ctx context.Context, tx *sql.Tx) error {
 	queries := []string{
+		// Keeping sampled_at before SQLite's implicit rowid preserves the
+		// original subscription/time scan order after filtering one email.
+		// Do not append weighted_bytes: that would reorder tied timestamps.
+		`CREATE INDEX IF NOT EXISTS traffic_ledger_subscription_email ON traffic_ledger(subscription_id,email,sampled_at)`,
 		`CREATE TABLE IF NOT EXISTS traffic_usage_revisions(subscription_id TEXT PRIMARY KEY,revision INTEGER NOT NULL)`,
 		`CREATE TRIGGER IF NOT EXISTS traffic_usage_insert AFTER INSERT ON traffic_ledger BEGIN
 		 INSERT INTO traffic_usage_revisions(subscription_id,revision) VALUES(NEW.subscription_id,1)

@@ -64,13 +64,18 @@ func TestPostgresIntegration(t *testing.T) {
 	defer second.Close()
 	t.Run("traffic usage remains uncached", func(t *testing.T) {
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{})
+		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 0)
 		usageExec(t, second.db, second.Bind(insertUsageRow), "usage-test", "usage-test", "uplink", 1.25, 10)
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{Total: 1.25, Up: 1.25})
+		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 1.25)
 		usageExec(t, second.db, `UPDATE traffic_ledger SET direction='downlink',weighted_bytes=2.5 WHERE id='usage-test'`)
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{Total: 2.5, Down: 2.5})
+		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 2.5)
+		checkNodeUsage(t, db, "usage-test", "other-email", 10, 20, 0)
 		checkUsage(t, db, "usage-test", 11, 20, TrafficUsage{})
 		usageExec(t, second.db, `DELETE FROM traffic_ledger WHERE id='usage-test'`)
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{})
+		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 0)
 	})
 	var wins atomic.Int32
 	var wg sync.WaitGroup

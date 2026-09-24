@@ -21,12 +21,13 @@ type Config struct {
 }
 
 type Store struct {
-	eventLog   func(map[string]any) error
-	db         *sql.DB
-	driver     string
-	encryption *EncryptionCodec
-	usageMu    sync.Mutex
-	usageCache map[string]trafficUsageEntry
+	eventLog       func(map[string]any) error
+	db             *sql.DB
+	driver         string
+	encryption     *EncryptionCodec
+	usageMu        sync.Mutex
+	usageCache     map[string]trafficUsageEntry
+	nodeUsageCache map[nodeTrafficUsageKey]nodeTrafficUsageEntry
 }
 
 type User struct {

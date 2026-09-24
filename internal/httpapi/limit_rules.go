@@ -207,6 +207,21 @@ func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behavio
 		return result, err
 	}
 	for _, sub := range subs {
+		plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
+		if err != nil {
+			continue
+		}
+		cfg := global
+		var cfgErr error
+		if value, exists := plan.Data["behaviorLimits"]; exists && value != nil {
+			cfg, cfgErr = behaviorConfiguration(value, "plan:"+plan.ID)
+		}
+		// A valid disabled source cannot contribute rules. Resolve the override
+		// before evaluating nodes, which may scan per-node quota ledgers.
+		// Invalid plan settings are still reported only for an eligible source.
+		if cfgErr == nil && !cfg.Enabled {
+			continue
+		}
 		if a.subscriptionActive(ctx, sub) != nil {
 			continue
 		}
@@ -224,19 +239,8 @@ func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behavio
 		if !selected {
 			continue
 		}
-		plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
-		if err != nil {
-			continue
-		}
-		cfg := global
-		if value, exists := plan.Data["behaviorLimits"]; exists && value != nil {
-			cfg, err = behaviorConfiguration(value, "plan:"+plan.ID)
-			if err != nil {
-				return result, err
-			}
-		}
-		if !cfg.Enabled {
-			continue
+		if cfgErr != nil {
+			return result, cfgErr
 		}
 		result.Enabled = true
 		if cfg.MaxGapSeconds < result.MaxGapSeconds {
@@ -454,6 +458,19 @@ func (a *App) expireLimitPenalties(ctx context.Context, now time.Time) bool {
 	changed := false
 	for _, record := range records {
 		state := readBehaviorState(record.Data)
+		hasPenalty := false
+		for _, progress := range state.Rules {
+			if progress.Until > 0 {
+				hasPenalty = true
+				break
+			}
+		}
+		if !hasPenalty {
+			// Partial sustained/burst evidence belongs to sample evaluation.
+			// Maintenance only needs configuration when a penalty can release,
+			// including a penalty whose deadline has already passed.
+			continue
+		}
 		events := []store.Record{}
 		parts := strings.SplitN(record.ID, "/", 2)
 		if len(parts) != 2 {
