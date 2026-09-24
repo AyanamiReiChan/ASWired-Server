@@ -289,6 +289,10 @@ func (a *App) queue(ctx context.Context, u store.User, serverID, action string, 
 	if retiredAgentAction(action) {
 		return store.Task{}, errors.New("此动作已不受支持")
 	}
+	params, e = a.proxyNetworkTaskParams(ctx, serverID, action, params)
+	if e != nil {
+		return store.Task{}, e
+	}
 	cmd := agentwire.Command{ID: newID(), Action: action, Params: params}
 	input, e := json.Marshal(cmd)
 	if e != nil {
@@ -384,7 +388,9 @@ func (a *App) permitDispatch(ctx context.Context, task store.Task) bool {
 				}
 			}
 		}
-		if err := a.validateManagedInboundTask(ctx, task); err != nil {
+		if err := a.validateProxyNetworkTask(ctx, task, cmd); err != nil {
+			task.Error = err.Error()
+		} else if err := a.validateManagedInboundTask(ctx, task); err != nil {
 			task.Error = err.Error()
 		} else {
 			return true

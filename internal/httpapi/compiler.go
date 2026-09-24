@@ -103,10 +103,21 @@ func (a *App) compileServerExcluding(ctx context.Context, server store.Record, v
 			}
 		}
 	}
+	// Global settings and stored policy rows contain nested maps. Work on a
+	// detached tree before routing normalization changes rule ordering.
+	cfg, e = cloneProxyConfig(cfg)
+	if e != nil {
+		return nil, e
+	}
+	stripProxyNetworkRules(cfg)
 	if err := prepareRouting(cfg, text(server.Data, "routingDefaultOutbound")); err != nil && validate {
 		return nil, err
 	}
-	return cfg, nil
+	blocked, err := a.proxyIPv6Blocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return applyProxyNetworkDefaults(cfg, blocked)
 }
 func compileInbound(r map[string]any, users []map[string]any) (map[string]any, error) {
 	if err := validateManagedInboundProfile(r); err != nil {

@@ -234,6 +234,19 @@ func (a *App) renderGenerated(ctx context.Context, actor store.User, in generato
 				return "", "", 0, sub, err
 			}
 			cfg["rules"] = append(rules, "MATCH,ASWired")
+			// Custom categories replace the rules after renderClientNodes has
+			// finalized its template. Reapply the global protection to this final
+			// document as well, for both previews and generated-link downloads.
+			blocked, err := a.proxyIPv6Blocked(ctx)
+			if err != nil {
+				return "", "", 0, sub, err
+			}
+			if blocked {
+				cfg, err = protectSubscriptionIPv6(cfg, in.Format)
+				if err != nil {
+					return "", "", 0, sub, err
+				}
+			}
 			raw, err := marshalConfigYAML(cfg)
 			if err != nil {
 				return "", "", 0, sub, err

@@ -192,13 +192,13 @@ func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behavio
 	}
 	var settings map[string]any
 	_ = a.DB.GetSetting(ctx, "settings", &settings)
-	global := behaviorConfig{MaxGapSeconds: 15}
-	var err error
-	if value, exists := settings["behaviorLimits"]; exists && value != nil {
-		global, err = behaviorConfiguration(value, "global")
-		if err != nil {
-			return global, err
-		}
+	globalValue := settings["behaviorLimits"]
+	if globalValue == nil {
+		globalValue = defaultBehaviorLimits()
+	}
+	global, err := behaviorConfiguration(globalValue, "global")
+	if err != nil {
+		return global, err
 	}
 	result := behaviorConfig{MaxGapSeconds: global.MaxGapSeconds}
 	seen := map[string]bool{}

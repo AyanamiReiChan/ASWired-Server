@@ -101,6 +101,7 @@ func TestLegacyManagedInboundRemainsReadableButCannotPublish(t *testing.T) {
 	for _, protocol := range []string{"VMess", "AnyTLS", "VLESS"} {
 		t.Run(protocol, func(t *testing.T) {
 			a, sub := subscriptionFixture(t)
+			enableProxyIPv6GuardFixture(a, "server")
 			ctx := context.Background()
 			actor, _ := a.DB.UserByID(ctx, "admin")
 			token, _ := a.Signer.Issue(actor.ID, actor.TokenVersion)

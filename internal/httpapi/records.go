@@ -1033,6 +1033,12 @@ func (a *App) settingsMap(r *http.Request) map[string]any {
 			defaults[k] = v
 		}
 	}
+	if defaults["behaviorLimits"] == nil {
+		defaults["behaviorLimits"] = defaultBehaviorLimits()
+	}
+	if defaults["blockProxyIPv6"] == nil {
+		defaults["blockProxyIPv6"] = true
+	}
 	if current(r).Role != "admin" {
 		return map[string]any{"workspace": defaults["workspace"], "timezone": defaults["timezone"]}
 	}
@@ -1075,6 +1081,12 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request) {
 	in.Settings["probeProvider"] = "Komari"
 	in.Settings["komariAutoSync"] = true
 	preserveSettingsSecrets(in.Settings, old)
+	if value, exists := in.Settings["blockProxyIPv6"]; exists && value != nil {
+		if _, ok := value.(bool); !ok {
+			fail(w, 400, "invalid_settings", "代理 IPv6 屏蔽开关必须为布尔值")
+			return
+		}
+	}
 	if e := validateLimitConfiguration(in.Settings); e != nil {
 		fail(w, 400, "invalid_limits", e.Error())
 		return

@@ -32,6 +32,7 @@ func TestManagedInboundTaskDispatchAndRetryRejectHistoricalProfiles(t *testing.T
 	for _, item := range cases {
 		t.Run(item.name, func(t *testing.T) {
 			a, h, token := controllerFixture(t)
+			enableProxyIPv6GuardFixture(a, "server")
 			ctx := context.Background()
 			if _, err := a.DB.SaveRecord(ctx, store.Record{Collection: "servers", ID: "server", Data: map[string]any{"name": "Server", "connection": "WebSocket"}}); err != nil {
 				t.Fatal(err)
@@ -77,6 +78,7 @@ func TestManagedInboundTaskDispatchAndRetryRejectHistoricalProfiles(t *testing.T
 
 func TestRealityCompileTaskAndIndependentRawTasksRemainDispatchable(t *testing.T) {
 	a, h, token := controllerFixture(t)
+	enableProxyIPv6GuardFixture(a, "server")
 	ctx := context.Background()
 	if _, err := a.DB.SaveRecord(ctx, store.Record{Collection: "servers", ID: "server", Data: map[string]any{"name": "Server", "connection": "WebSocket"}}); err != nil {
 		t.Fatal(err)
@@ -133,6 +135,7 @@ func TestManagedTaskOwnershipSurvivesInboundDeletionAndRenaming(t *testing.T) {
 	for _, mutation := range []string{"delete", "rename-tag", "move-server"} {
 		t.Run(mutation, func(t *testing.T) {
 			a, h, token := controllerFixture(t)
+			enableProxyIPv6GuardFixture(a, "server", "other-server")
 			ctx := context.Background()
 			for _, id := range []string{"server", "other-server"} {
 				if _, err := a.DB.SaveRecord(ctx, store.Record{Collection: "servers", ID: id, Data: map[string]any{"name": id, "connection": "WebSocket"}}); err != nil {

@@ -55,6 +55,11 @@ func (a *App) deleteManagedInbound(w http.ResponseWriter, r *http.Request, rec s
 		return
 	}
 	command := agentwire.Command{ID: newID(), Action: "core.config.apply", Params: map[string]any{"config": config, "managedInbounds": true, "managedProfileVersion": 2, "auxiliary": aux}}
+	command.Params, err = a.proxyNetworkTaskParams(ctx, server.ID, command.Action, command.Params)
+	if err != nil {
+		fail(w, 400, "proxy_ipv6_guard_unavailable", err.Error())
+		return
+	}
 	raw, _ := json.Marshal(command)
 	task := store.Task{ID: command.ID, ServerID: server.ID, ActorID: actor.ID, Kind: command.Action, Status: "queued", Input: raw}
 	tombstone := store.Record{Collection: "_deletedManagedInbounds", ID: inbound.ID, Data: map[string]any{"serverId": server.ID, "tag": text(inbound.Data, "tag"), "deletedAt": time.Now().UTC(), "taskId": task.ID}}

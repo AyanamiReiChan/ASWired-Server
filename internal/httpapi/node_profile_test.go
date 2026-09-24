@@ -199,6 +199,7 @@ func TestSpeedtestRejectsUnsupportedTransportInOldQueue(t *testing.T) {
 
 func TestManagedProxyTaskDispatchAndRetryRejectHistoricalOutbounds(t *testing.T) {
 	a, h, token := controllerFixture(t)
+	enableProxyIPv6GuardFixture(a, "server")
 	ctx := context.Background()
 	_, _ = a.DB.SaveRecord(ctx, store.Record{Collection: "servers", ID: "server", Data: map[string]any{"name": "Server", "connection": "WebSocket"}})
 	_, _ = a.DB.SaveRecord(ctx, store.Record{Collection: "outbounds", ID: "managed-proxy", Data: map[string]any{"name": "Old proxy", "serverId": "server", "tag": "managed-proxy", "protocol": "trojan"}})

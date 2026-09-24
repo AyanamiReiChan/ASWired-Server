@@ -350,6 +350,9 @@ func (a *App) routingAction(ctx context.Context, u store.User, in actionInput) (
 	}
 	previous, _ := cfg["routing"].(map[string]any)
 	preserveAPIRules(previous, proposed)
+	// The generated guard is controlled by the global network policy. Never
+	// persist its displayed row as a user rule that would survive disabling it.
+	stripProxyNetworkRules(map[string]any{"routing": proposed})
 	global, _ := server.Data["globalConfig"].(map[string]any)
 	if global == nil {
 		global = map[string]any{}

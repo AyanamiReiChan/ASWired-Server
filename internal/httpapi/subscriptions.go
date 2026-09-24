@@ -1235,6 +1235,16 @@ func (a *App) renderClientNodes(ctx context.Context, sub store.Record, nodes []c
 			return "", "", len(reasons), e
 		}
 		content = modified
+		blocked, err := a.proxyIPv6Blocked(ctx)
+		if err != nil {
+			return "", "", len(reasons), err
+		}
+		if blocked {
+			content, err = protectSubscriptionIPv6(content, format)
+			if err != nil {
+				return "", "", len(reasons), err
+			}
+		}
 		if err := validateSubscriptionOutput(content, format, nodes); err != nil {
 			return "", "", len(reasons), err
 		}

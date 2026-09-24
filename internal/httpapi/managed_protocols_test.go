@@ -37,6 +37,7 @@ func TestManagedProtocolsCreatePublishSubscribeAndRevoke(t *testing.T) {
 			a, sub := subscriptionFixture(t)
 			ctx := context.Background()
 			a.peers["server"] = &peer{LastSeen: time.Now(), Capabilities: map[string]bool{"managed_protocols_v2": true, "managed_account_reload": true, "anytls": true, "snell": true}}
+			enableProxyIPv6GuardFixture(a, "server")
 			actor, _ := a.DB.UserByID(ctx, "admin")
 			token, _ := a.Signer.Issue(actor.ID, actor.TokenVersion)
 			response := controllerRequest(t, a.Handler(), "POST", "/api/collections/inbounds", token, map[string]any{"row": managedProtocolFixture(protocol)})

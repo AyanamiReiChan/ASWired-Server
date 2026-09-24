@@ -43,6 +43,7 @@ func TestLifecycleManagedNodeMetadataSurvivesRefresh(t *testing.T) {
 
 func TestLifecycleManagedNodeDeletionSurvivesRefresh(t *testing.T) {
 	a, _ := subscriptionFixture(t)
+	enableProxyIPv6GuardFixture(a, "server")
 	ctx := context.Background()
 	_, err := a.DB.SaveRecord(ctx, store.Record{Collection: "inbounds", ID: "audit-delete", Data: realityInboundFixtureData()})
 	if err != nil {

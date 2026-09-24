@@ -210,7 +210,7 @@ func TestGeneratorDefaultTemplateLifecycle(t *testing.T) {
 	download = controllerRequest(t, h, "GET", link, "", nil)
 	requireStatus(t, download, 200)
 	assertClashPorts(t, download.Body.String(), 9876, 443)
-	if !slices.Equal(configRules(t, download.Body.String()), []string{"MATCH,PROXY"}) {
+	if !slices.Equal(configRules(t, download.Body.String()), []string{"IP-CIDR6,::/0,REJECT,no-resolve", "MATCH,PROXY"}) {
 		t.Fatal("administrator default did not replace the built-in default")
 	}
 	input.Mode = "custom"
@@ -218,8 +218,8 @@ func TestGeneratorDefaultTemplateLifecycle(t *testing.T) {
 	custom := controllerRequest(t, h, "POST", "/api/subscription-generator", token, input)
 	requireStatus(t, custom, 200)
 	assertClashPorts(t, text(responseMap(t, custom), "content"), 7890, 443)
-	if !slices.Equal(configRules(t, text(responseMap(t, custom), "content")), []string{"MATCH,ASWired"}) {
-		t.Fatal("custom rules no longer bypass defaults")
+	if !slices.Equal(configRules(t, text(responseMap(t, custom), "content")), []string{"IP-CIDR6,::/0,REJECT,no-resolve", "MATCH,ASWired"}) {
+		t.Fatalf("custom rules no longer bypass defaults: %v", configRules(t, text(responseMap(t, custom), "content")))
 	}
 	sub.Data["token"] = "rotated-parent-token"
 	if _, err := a.DB.SaveRecord(ctx, sub); err != nil {
