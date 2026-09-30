@@ -159,6 +159,7 @@ func (a *App) telegramCommand(ctx context.Context, chat, command string) (string
 		parts[0] = name
 		return a.telegramAdminCommand(ctx, user, parts)
 	}
+	ctx = withPoolUsageSnapshot(ctx)
 	switch name {
 	case "/help", "/start":
 		return "/me 查看账户\n/usage 查看套餐用量\n/subscriptions 查看订阅\n/nodes 查看节点\n/notify on|off 事件通知\n/renew 套餐订阅ID 提交续费声明\n/redeem 兑换码\n/unbind 确认解绑\n管理员：/servers /tasks /restart /stop /find /codescreate /codesrevoke /requests", nil
@@ -171,7 +172,16 @@ func (a *App) telegramCommand(ctx context.Context, chat, command string) (string
 		}
 		lines := []string{}
 		for _, sub := range subs {
-			line := fmt.Sprintf("%s：%.2f / %.2f GiB · %s", text(sub.Data, "name"), number(sub.Data, "used"), number(sub.Data, "limit"), text(sub.Data, "effectiveStatus")) + "\nID: " + sub.ID
+			usage, quotaLimit, err := a.subscriptionQuotaUsage(ctx, sub)
+			if err != nil {
+				return "", err
+			}
+			plan, _ := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
+			label := text(sub.Data, "name")
+			if sharedTraffic(plan.Data) {
+				label += "（共享池）"
+			}
+			line := fmt.Sprintf("%s：%.2f / %.2f GiB · %s", label, usage.Total/gib, quotaLimit, text(sub.Data, "effectiveStatus")) + "\nID: " + sub.ID
 			if name == "/subscriptions" && a.subscriptionActive(ctx, sub) == nil {
 				line += "\n" + strings.TrimRight(a.Config.PublicURL, "/") + "/api/clash/subscribe?token=" + url.QueryEscape(text(sub.Data, "token"))
 			}

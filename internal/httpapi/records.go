@@ -197,6 +197,9 @@ func (a *App) visibleRows(r *http.Request, collection string) ([]map[string]any,
 			continue
 		}
 		row := rowOf(rec, false)
+		if err := a.projectTrafficPool(r.Context(), collection, rec, row); err != nil {
+			return nil, err
+		}
 		if collection == "certificates" {
 			if operation, err := a.DB.GetRecord(r.Context(), "_operationSchedule", "certificate:"+rec.ID); err == nil {
 				row["lastOperation"] = map[string]any{"status": operation.Data["status"], "error": operation.Data["error"], "lastAttempt": operation.Data["lastAttempt"]}
@@ -363,6 +366,10 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row := rowOf(rec, true)
+	if err := a.projectTrafficPool(r.Context(), c, rec, row); err != nil {
+		fail(w, 503, "storage_error", "共享池用量暂不可用")
+		return
+	}
 	if c == "members" {
 		delete(row, "password")
 	}
@@ -461,6 +468,10 @@ func (a *App) save(w http.ResponseWriter, r *http.Request) {
 		row["isDefault"] = boolean(previous.Data, "isDefault")
 		row["userVisible"] = boolean(previous.Data, "userVisible")
 	}
+	stripTrafficPoolProjection(row)
+	if c == "subscriptions" {
+		delete(row, "trafficMode")
+	}
 	delete(row, "subscriptionAuthorized")
 	if u.Role != "admin" {
 		var err error
@@ -537,6 +548,8 @@ func (a *App) save(w http.ResponseWriter, r *http.Request) {
 		if e == nil {
 			rec = saved[0]
 		}
+	} else if c == "plans" {
+		rec, e = a.savePlanWithPool(r.Context(), record)
 	} else {
 		rec, e = a.DB.SaveRecord(r.Context(), record)
 	}
@@ -563,10 +576,15 @@ func (a *App) save(w http.ResponseWriter, r *http.Request) {
 	if c == "policies" || c == "rules" {
 		_, _ = a.DB.SaveRecord(r.Context(), store.Record{Collection: "_documentVersions", ID: newID(), OwnerID: rec.OwnerID, Data: map[string]any{"documentId": rec.ID, "collection": c, "version": rec.Version, "content": rec.Data["content"], "script": rec.Data["script"]}})
 	}
+	r = r.WithContext(freshPoolUsageSnapshot(r.Context()))
 	if c == "subscriptions" || c == "plans" || c == "members" || c == "inbounds" {
 		a.reconcileUsers(r.Context(), u)
 	}
-	respond(w, 200, map[string]any{"row": rowOf(rec, c == "subscriptions")})
+	out := rowOf(rec, c == "subscriptions")
+	if err := a.projectTrafficPool(r.Context(), c, rec, out); err != nil {
+		out["poolUsageError"] = true
+	}
+	respond(w, 200, map[string]any{"row": out})
 }
 func (a *App) prepareMember(r *http.Request, id string, row map[string]any, exists bool) (store.User, error) {
 	application := text(row, "application")

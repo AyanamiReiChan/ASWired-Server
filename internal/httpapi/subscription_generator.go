@@ -374,8 +374,13 @@ func (a *App) generatorDownload(w http.ResponseWriter, r *http.Request) {
 		expiry = parent
 	}
 	if sub.ID != "" {
-		_, up, down, _ := a.subscriptionUsage(r.Context(), sub)
-		w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f; expire=%d", up, down, number(sub.Data, "limit")*gib, expiry.Unix()))
+		usage, quotaLimit, usageErr := a.subscriptionQuotaUsage(r.Context(), sub)
+		if usageErr != nil {
+			fail(w, 503, "storage_error", "流量用量暂不可用")
+			return
+		}
+		up, down := usage.Up, usage.Down
+		w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f; expire=%d", up, down, quotaLimit*gib, expiry.Unix()))
 	} else {
 		w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=0; total=0; expire=%d", expiry.Unix()))
 	}

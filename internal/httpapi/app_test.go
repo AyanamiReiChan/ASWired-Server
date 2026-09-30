@@ -109,6 +109,9 @@ func TestControllerBackupRoundTripAndWrongKey(t *testing.T) {
 	if _, err := a.DB.DB().Exec(`INSERT INTO traffic_ledger(id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,weighted_bytes,sampled_at,gap,gap_reason) VALUES('restore-usage','server','restore-sub','','email','uplink',17,1,17,10,0,'')`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := a.DB.SaveRecord(ctx, store.Record{Collection: "_trafficPools", ID: "restore-pool", Data: map[string]any{"cycleStart": time.UnixMilli(0).UTC().Format(time.RFC3339Nano), "cycleEnd": "", "members": map[string]any{"restore-sub": time.UnixMilli(0).UTC().Format(time.RFC3339Nano)}}}); err != nil {
+		t.Fatal(err)
+	}
 	u, _ := a.DB.UserByUsername(ctx, "test-admin")
 	_, e := a.DB.SaveRecord(ctx, store.Record{Collection: "certificates", ID: "secret-cert", Data: map[string]any{"name": "fixture", "privateKey": "private-value-never-public"}})
 	if e != nil {
@@ -157,6 +160,9 @@ func TestControllerBackupRoundTripAndWrongKey(t *testing.T) {
 	if usage, err := a.DB.SubscriptionUsage(ctx, "restore-sub", 0, 20); err != nil || usage.Total != 99 {
 		t.Fatalf("warm pre-restore cache: %+v %v", usage, err)
 	}
+	if usage, err := a.DB.TrafficPoolUsage(ctx, "restore-pool", 20); err != nil || usage.Total != 99 {
+		t.Fatalf("warm shared pool: %+v %v", usage, err)
+	}
 	rec, _ := a.DB.GetRecord(ctx, "certificates", "secret-cert")
 	rec.Data["privateKey"] = "changed"
 	if _, e = a.DB.SaveRecord(ctx, rec); e != nil {
@@ -165,6 +171,9 @@ func TestControllerBackupRoundTripAndWrongKey(t *testing.T) {
 	requireStatus(t, restore(raw), 200)
 	if usage, err := a.DB.SubscriptionUsage(ctx, "restore-sub", 0, 20); err != nil || usage.Total != 17 {
 		t.Fatalf("restore retained stale usage: %+v %v", usage, err)
+	}
+	if usage, err := a.DB.TrafficPoolUsage(ctx, "restore-pool", 20); err != nil || usage.Total != 17 {
+		t.Fatalf("pool mapping or usage not restored: %+v %v", usage, err)
 	}
 	rec, e = a.DB.GetRecord(ctx, "certificates", "secret-cert")
 	if e != nil || text(rec.Data, "privateKey") != "private-value-never-public" {

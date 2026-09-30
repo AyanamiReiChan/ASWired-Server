@@ -598,25 +598,28 @@ func (a *App) behaviorEffective(ctx context.Context, userID, serverID string, ba
 }
 
 func (a *App) quotaOutcome(ctx context.Context, sub store.Record) (bool, float64, error) {
-	limit := number(sub.Data, "limit")
-	if limit <= 0 {
-		return false, 0, nil
-	}
-	used, _, _, err := a.subscriptionUsage(ctx, sub)
+	plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
 	if err != nil {
 		return false, 0, err
 	}
-	if used < limit*gib {
+	limit := effectiveQuotaLimit(sub.Data, plan.Data)
+	if limit <= 0 {
 		return false, 0, nil
 	}
-	plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
+	usage, _, err := a.quotaUsage(ctx, sub, plan)
 	if err != nil {
-		return true, 0, err
+		return false, 0, err
+	}
+	if usage.Total < limit*gib {
+		return false, 0, nil
 	}
 	return true, quotaPolicy(sub.Data, plan.Data), nil
 }
 
 func quotaPolicy(sub, plan map[string]any) float64 {
+	if sharedTraffic(plan) {
+		sub = nil
+	}
 	mode := text(sub, "quotaMode")
 	if mode == "" {
 		mode = text(plan, "quotaMode")
@@ -661,12 +664,12 @@ func (a *App) noteQuotaState(ctx context.Context, sub, plan store.Record, over b
 			}
 		}
 		notify := boolean(plan.Data, "quotaNotify")
-		if v, exists := sub.Data["quotaNotify"]; exists {
+		if v, exists := sub.Data["quotaNotify"]; exists && !sharedTraffic(plan.Data) {
 			notify = v == true
 		}
 		event := limitEvent(sub.OwnerID, "", sub.ID, kind, reason, behaviorProgress{LimitMbps: speed, Notify: notify, Source: "subscription:" + sub.ID}, 0, time.Now().UnixMilli())
 		if over {
-			event.Data["rule"] = map[string]any{"id": sub.ID, "kind": "quota", "quotaGB": number(sub.Data, "limit"), "quotaMode": map[bool]string{true: "throttle", false: "stop"}[speed > 0], "limitMbps": speed}
+			event.Data["rule"] = map[string]any{"id": sub.ID, "kind": "quota", "quotaGB": effectiveQuotaLimit(sub.Data, plan.Data), "trafficMode": defaultText(plan.Data, "trafficMode", "individual"), "quotaMode": map[bool]string{true: "throttle", false: "stop"}[speed > 0], "limitMbps": speed}
 		}
 		records = append(records, event)
 	}

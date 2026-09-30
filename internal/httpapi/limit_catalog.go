@@ -84,9 +84,12 @@ func limitCatalogSpeeds(group *limitRuleGroup, data map[string]any, resources ma
 }
 
 func limitCatalogQuota(group *limitRuleGroup, data, plan map[string]any) {
+	if group.Scope == "subscription" && sharedTraffic(plan) {
+		return
+	}
 	// Absent subscription settings inherit their plan and are represented once
 	// in that plan's group.
-	if text(data, "quotaMode") == "" && data["quotaSpeedMbps"] == nil {
+	if text(data, "quotaMode") == "" && data["quotaSpeedMbps"] == nil && !sharedTraffic(data) {
 		return
 	}
 	speed := quotaPolicy(data, plan)
@@ -95,6 +98,9 @@ func limitCatalogQuota(group *limitRuleGroup, data, plan map[string]any) {
 		mode = "throttle"
 	}
 	rule := map[string]any{"id": group.ID + "/quota", "kind": "quota", "enabled": true, "quotaMode": mode, "limitMbps": speed}
+	if sharedTraffic(data) {
+		rule["quotaGB"], rule["trafficMode"], rule["enabled"] = number(data, "limit"), "shared", number(data, "limit") > 0
+	}
 	if group.Scope == "subscription" {
 		rule["quotaGB"] = number(data, "limit")
 		// A subscription without a positive quota never triggers quotaOutcome.

@@ -72,6 +72,9 @@ func (a *App) memberManagement(w http.ResponseWriter, r *http.Request) {
 		} else {
 			row["used"] = used / gib
 		}
+		if err := a.projectTrafficPool(r.Context(), "subscriptions", rec, row); err != nil {
+			row["poolUsageError"] = true
+		}
 		subscriptions[rec.OwnerID] = append(subscriptions[rec.OwnerID], row)
 	}
 	rows := []map[string]any{}

@@ -111,7 +111,7 @@ func (a *App) membershipView(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, p := range recs {
 		if !disabledStatus(p.Data) && boolean(p.Data, "selfService") {
-			plans = append(plans, map[string]any{"id": p.ID, "name": p.Data["name"], "description": p.Data["description"], "price": p.Data["price"], "cycleDays": p.Data["cycleDays"], "limit": p.Data["limit"], "speed": p.Data["speed"], "ipLimit": p.Data["ipLimit"], "instructions": p.Data["instructions"]})
+			plans = append(plans, map[string]any{"id": p.ID, "name": p.Data["name"], "description": p.Data["description"], "price": p.Data["price"], "cycleDays": p.Data["cycleDays"], "limit": p.Data["limit"], "trafficMode": defaultText(p.Data, "trafficMode", "individual"), "speed": p.Data["speed"], "ipLimit": p.Data["ipLimit"], "instructions": p.Data["instructions"]})
 		}
 	}
 	out := map[string]any{"plans": plans}
@@ -514,6 +514,9 @@ func (a *App) membershipResetTraffic(ctx context.Context, u store.User, in actio
 	plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
 	if err != nil {
 		return nil, err
+	}
+	if sharedTraffic(plan.Data) {
+		return nil, errors.New("共享流量池不能单独重置成员用量，请等待套餐统一周期重置")
 	}
 	now := time.Now().UTC()
 	end := dateTime(text(sub.Data, "cycleEnd"))

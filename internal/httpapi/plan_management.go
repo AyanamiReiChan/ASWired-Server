@@ -19,6 +19,17 @@ func planTemplateID(row map[string]any, format string) string {
 }
 
 func (a *App) validatePlanManagement(ctx context.Context, row map[string]any) error {
+	if value := row["trafficMode"]; value != nil {
+		if _, ok := value.(string); !ok {
+			return errors.New("流量分配类型须为字符串")
+		}
+	}
+	if mode := text(row, "trafficMode"); mode != "" && mode != "individual" && mode != "shared" {
+		return errors.New("流量分配类型仅支持独立额度或共享流量池")
+	}
+	if row["trafficMode"] == nil || text(row, "trafficMode") == "" {
+		row["trafficMode"] = "individual"
+	}
 	if strings.TrimSpace(text(row, "name")) == "" {
 		return errors.New("请填写套餐名称")
 	}

@@ -119,6 +119,11 @@ func (s *Store) saveRecordTx(ctx context.Context, tx *sql.Tx, r Record) (Record,
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return Record{}, err
 	}
+	if r.Collection == "subscriptions" && errors.Is(err, ErrNotFound) {
+		if poolErr := s.registerTrafficPoolMemberTx(ctx, tx, r); poolErr != nil {
+			return Record{}, poolErr
+		}
+	}
 	r.UpdatedAt = time.Now().UTC()
 	if errors.Is(err, ErrNotFound) {
 		if r.Version > 0 {

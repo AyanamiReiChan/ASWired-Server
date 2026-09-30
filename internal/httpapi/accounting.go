@@ -52,6 +52,7 @@ type trafficOwner struct {
 }
 
 func (a *App) accountStats(ctx context.Context, serverID string, stats map[string]any) {
+	ctx = withPoolUsageSnapshot(ctx)
 	if boolean(stats, "reset") {
 		slog.Warn("resetting counter snapshot rejected", "server", serverID)
 		return
@@ -104,6 +105,17 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 		plan, e := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
 		if e != nil {
 			continue
+		}
+		if sharedTraffic(plan.Data) {
+			pool, poolErr := a.ensureTrafficPool(ctx, plan)
+			if poolErr != nil {
+				return
+			}
+			for _, field := range []string{"cycleStart", "cycleEnd"} {
+				if boundary := dateTime(text(pool.Data, field)); !boundary.IsZero() {
+					boundaries[sub.ID] = append(boundaries[sub.ID], boundary.UnixMilli())
+				}
+			}
 		}
 		directionFactor := number(plan.Data, "directionFactor")
 		if directionFactor != 2 {
@@ -218,6 +230,7 @@ func (a *App) accountStats(ctx context.Context, serverID string, stats map[strin
 		return
 	}
 
+	ctx = freshPoolUsageSnapshot(ctx)
 	for _, sub := range subscriptions {
 		if !affected[sub.ID] {
 			continue
@@ -302,6 +315,7 @@ func cycleStamp(value time.Time) string {
 }
 
 func (a *App) expireSubscriptions(ctx context.Context) {
+	ctx = withPoolUsageSnapshot(ctx)
 	subs, err := a.DB.ListRecords(ctx, "subscriptions", "")
 	if err != nil {
 		return
@@ -598,10 +612,18 @@ func (a *App) trafficLedger(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		limit := float64(0)
+		sharedPlans := map[string]bool{}
 		subs, _ := a.DB.ListRecords(ctx, "subscriptions", id)
 		for _, sub := range subs {
 			if sub.OwnerID == id {
-				limit += number(sub.Data, "limit")
+				plan, _ := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
+				if sharedTraffic(plan.Data) {
+					if sharedPlans[plan.ID] {
+						continue
+					}
+					sharedPlans[plan.ID] = true
+				}
+				limit += effectiveQuotaLimit(sub.Data, plan.Data)
 			}
 		}
 		memberRows = append(memberRows, map[string]any{"id": id, "name": name, "up": v.Up, "down": v.Down, "used": (v.Up + v.Down) / gib, "limit": limit, "source": "Xray用户加权台账"})

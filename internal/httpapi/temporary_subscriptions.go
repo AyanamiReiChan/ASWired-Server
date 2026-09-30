@@ -202,6 +202,12 @@ func (a *App) temporaryDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	usage, quotaLimit, usageErr := a.subscriptionQuotaUsage(r.Context(), sub)
+	if usageErr != nil {
+		fail(w, 503, "storage_error", "流量用量暂不可用")
+		return
+	}
+	up, down := usage.Up, usage.Down
 	for attempt := 0; attempt < 12; attempt++ {
 		currentSub, currentNode, err := a.temporarySource(r.Context(), rec, requestIP(r))
 		if err != nil {
@@ -216,8 +222,7 @@ func (a *App) temporaryDownload(w http.ResponseWriter, r *http.Request) {
 		rec.Data["lastUsedAt"] = time.Now().UTC().Format(time.RFC3339Nano)
 		updated, err := a.DB.SaveRecord(r.Context(), rec)
 		if err == nil {
-			_, up, down, _ := a.subscriptionUsage(r.Context(), sub)
-			header := fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f; expire=%d", up, down, number(sub.Data, "limit")*gib, dateTime(text(updated.Data, "expiresAt")).Unix())
+			header := fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f; expire=%d", up, down, quotaLimit*gib, dateTime(text(updated.Data, "expiresAt")).Unix())
 			w.Header().Set("Subscription-Userinfo", header)
 			w.Header().Set("X-ASWired-Temporary-Remaining", strconv.Itoa(int(number(updated.Data, "maxUses")-number(updated.Data, "used"))))
 			w.Header().Set("X-ASWired-Skipped-Nodes", strconv.Itoa(skipped))

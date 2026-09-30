@@ -347,7 +347,7 @@ func (a *App) Handler() http.Handler {
 			fail(w, 404, "not_found", "页面不存在")
 			return
 		}
-		mux.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r.WithContext(withPoolUsageSnapshot(r.Context())))
 	})
 }
 

@@ -60,6 +60,9 @@ func (a *App) generatedList(w http.ResponseWriter, r *http.Request) {
 				if usageErr == nil {
 					row["metered"], row["used"], row["limit"] = true, used/gib, number(sub.Data, "limit")
 				}
+				if err := a.projectTrafficPool(r.Context(), "subscriptions", sub, row); err != nil {
+					row["poolUsageError"] = true
+				}
 				if !constant(text(rec.Data, "parentTokenHash"), hashOpaque(text(sub.Data, "token"))) {
 					row["status"] = "套餐凭据已轮换"
 				}

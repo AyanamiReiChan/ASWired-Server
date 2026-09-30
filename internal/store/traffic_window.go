@@ -75,12 +75,20 @@ func (s *Store) readLedgerUsage(ctx context.Context, subscriptionID string, emai
 		return trafficUsageEntry{}, err
 	}
 	defer tx.Rollback()
+	entry, err := s.readLedgerUsageTx(ctx, tx, subscriptionID, email, start, end, previous, cached)
+	if err != nil {
+		return trafficUsageEntry{}, err
+	}
+	return entry, tx.Commit()
+}
+
+func (s *Store) readLedgerUsageTx(ctx context.Context, tx *sql.Tx, subscriptionID string, email *string, start, end int64, previous trafficUsageEntry, cached bool) (trafficUsageEntry, error) {
 	scope, scopeEmail := 0, ""
 	if email != nil {
 		scope, scopeEmail = 1, *email
 	}
 	entry := trafficUsageEntry{start: start, end: end}
-	err = tx.QueryRowContext(ctx, `SELECT revision,mutation,latest FROM traffic_usage_windows WHERE subscription_id=? AND scope=? AND email=?`, subscriptionID, scope, scopeEmail).Scan(&entry.revision, &entry.mutation, &entry.latest)
+	err := tx.QueryRowContext(ctx, `SELECT revision,mutation,latest FROM traffic_usage_windows WHERE subscription_id=? AND scope=? AND email=?`, subscriptionID, scope, scopeEmail).Scan(&entry.revision, &entry.mutation, &entry.latest)
 	if err != nil && err != sql.ErrNoRows {
 		return trafficUsageEntry{}, err
 	}
@@ -98,7 +106,7 @@ func (s *Store) readLedgerUsage(ctx context.Context, subscriptionID string, emai
 	compatible := cached && previous.start == start && sameEnd
 	if compatible && previous.revision == entry.revision && previous.mutation == entry.mutation {
 		previous.end = end
-		return previous, tx.Commit()
+		return previous, nil
 	}
 	entry.frontier = start
 	if entry.latest.Valid && entry.latest.Int64 >= math.MinInt64+trafficReorderWindow {
@@ -164,7 +172,7 @@ func (s *Store) readLedgerUsage(ctx context.Context, subscriptionID string, emai
 		entry.incremental = entry.incremental && sameUsageBits(entry.usage, legacy)
 		entry.usage = legacy
 	}
-	return entry, tx.Commit()
+	return entry, nil
 }
 
 // Window metadata is derived and intentionally absent from logical backups.

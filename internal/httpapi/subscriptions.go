@@ -161,14 +161,15 @@ func (a *App) subscriptionActive(ctx context.Context, sub store.Record) error {
 	if exp := dateTime(text(sub.Data, "expires")); !exp.IsZero() && !time.Now().Before(exp) {
 		return errors.New("订阅已到期")
 	}
-	used, _, _, err := a.subscriptionUsage(ctx, sub)
+	usage, limit, err := a.quotaUsage(ctx, sub, plan)
 	if err != nil {
 		return err
 	}
-	if limit := number(sub.Data, "limit"); limit > 0 && used >= limit*gib {
-		if quotaPolicy(sub.Data, plan.Data) <= 0 {
-			return errors.New("套餐流量已用尽")
+	if limit > 0 && usage.Total >= limit*gib && quotaPolicy(sub.Data, plan.Data) <= 0 {
+		if sharedTraffic(plan.Data) {
+			return errors.New("共享池流量已用尽")
 		}
+		return errors.New("套餐流量已用尽")
 	}
 	return nil
 }
@@ -403,6 +404,7 @@ func (a *App) usersForInbound(ctx context.Context, inbound store.Record) ([]map[
 }
 
 func (a *App) reconcileUsers(ctx context.Context, u store.User) {
+	ctx = withPoolUsageSnapshot(ctx)
 	if err := a.refreshInboundNodes(ctx); err != nil {
 		a.audit(ctx, u, "subscription.reconcile.failed", "", map[string]any{"error": err.Error()})
 		return
@@ -767,9 +769,14 @@ func (a *App) serveSubscription(w http.ResponseWriter, r *http.Request, sub stor
 		fail(w, 422, "incompatible_config", err.Error())
 		return
 	}
-	_, up, down, _ := a.subscriptionUsage(r.Context(), sub)
+	usage, quotaLimit, err := a.subscriptionQuotaUsage(r.Context(), sub)
+	if err != nil {
+		fail(w, 503, "storage_error", "流量用量暂不可用")
+		return
+	}
+	up, down := usage.Up, usage.Down
 	a.grantEntry(w, r)
-	header := fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f", up, down, number(sub.Data, "limit")*gib)
+	header := fmt.Sprintf("upload=%.0f; download=%.0f; total=%.0f", up, down, quotaLimit*gib)
 	if expiry := dateTime(text(sub.Data, "expires")); !expiry.IsZero() {
 		header += fmt.Sprintf("; expire=%d", expiry.Unix())
 	}

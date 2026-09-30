@@ -77,6 +77,59 @@ func TestPostgresIntegration(t *testing.T) {
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{})
 		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 0)
 	})
+	t.Run("shared pool concurrent joins and persistent contributions", func(t *testing.T) {
+		plan, err := db.SaveRecord(ctx, Record{Collection: "plans", ID: "pg-pool", Data: map[string]any{"trafficMode": "shared"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := time.UnixMilli(0).UTC().Format(time.RFC3339Nano)
+		pool, _, err := db.SaveTrafficPool(ctx, Record{Collection: "_trafficPools", ID: plan.ID, Data: map[string]any{"cycleStart": start, "cycleEnd": ""}}, true, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var joins sync.WaitGroup
+		for i := range 12 {
+			joins.Add(1)
+			go func(i int) {
+				defer joins.Done()
+				handle := db
+				if i%2 != 0 {
+					handle = second
+				}
+				id := fmt.Sprintf("pg-pool-%d", i)
+				if _, err := handle.SaveRecord(ctx, Record{Collection: "subscriptions", ID: id, OwnerID: id, Data: map[string]any{"planId": plan.ID, "cycleStart": start}}); err != nil {
+					t.Errorf("pool join: %v", err)
+				}
+			}(i)
+		}
+		joins.Wait()
+		pool, err = db.GetRecord(ctx, "_trafficPools", plan.ID)
+		if err != nil || len(pool.Data["members"].(map[string]any)) != 12 {
+			t.Fatal("concurrent pool joins lost membership", err)
+		}
+		usageExec(t, second.db, second.Bind(insertUsageRow), "pg-pool-a", "pg-pool-0", "uplink", 12.5, 10)
+		usageExec(t, second.db, second.Bind(insertUsageRow), "pg-pool-b", "pg-pool-1", "downlink", 7.5, 15)
+		usage, err := db.TrafficPoolUsage(ctx, plan.ID, 20)
+		if err != nil || usage.Total != 20 || usage.Up != 12.5 || usage.Down != 7.5 || usage.MemberCount != 12 {
+			t.Fatalf("pool snapshot %+v %v", usage, err)
+		}
+		if err := second.DeleteRecord(ctx, "subscriptions", "pg-pool-0"); err != nil {
+			t.Fatal(err)
+		}
+		usage, err = db.TrafficPoolUsage(ctx, plan.ID, 20)
+		if err != nil || usage.Total != 20 || usage.MemberCount != 11 {
+			t.Fatalf("deleted contribution lost %+v %v", usage, err)
+		}
+		pool, _ = db.GetRecord(ctx, "_trafficPools", plan.ID)
+		pool.Data["cycleStart"] = time.UnixMilli(15).UTC().Format(time.RFC3339Nano)
+		if _, _, err := db.SaveTrafficPool(ctx, pool, false, true, nil); err != nil {
+			t.Fatal(err)
+		}
+		usage, err = db.TrafficPoolUsage(ctx, plan.ID, 20)
+		if err != nil || usage.Total != 7.5 {
+			t.Fatalf("pool reset %+v %v", usage, err)
+		}
+	})
 	var wins atomic.Int32
 	var wg sync.WaitGroup
 	for i := range 12 {
