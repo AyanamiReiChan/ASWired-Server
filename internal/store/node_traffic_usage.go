@@ -11,11 +11,7 @@ type nodeTrafficUsageKey struct {
 	subscriptionID, email string
 }
 
-type nodeTrafficUsageEntry struct {
-	start, end, revision int64
-	latest               sql.NullInt64
-	usage                float64
-}
+type nodeTrafficUsageEntry = trafficUsageEntry
 
 // NodeTrafficUsage reads the original weighted ledger sum for one subscription
 // and Xray email. Only SQLite caches results, using the same transactional
@@ -24,34 +20,12 @@ func (s *Store) NodeTrafficUsage(ctx context.Context, subscriptionID, email stri
 	if s.driver != "sqlite" {
 		return s.queryNodeTrafficUsage(ctx, s.db, subscriptionID, email, start, end)
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	var revision int64
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT revision FROM traffic_usage_revisions WHERE subscription_id=?),0)`, subscriptionID).Scan(&revision); err != nil {
-		return 0, err
-	}
 	key := nodeTrafficUsageKey{subscriptionID: subscriptionID, email: email}
 	s.usageMu.Lock()
 	entry, ok := s.nodeUsageCache[key]
 	s.usageMu.Unlock()
-	// No-reset subscriptions have a moving now+100-year end. It can be
-	// reused only when both bounds include every possible row for this pair.
-	sameEnd := entry.end == end || !entry.latest.Valid || entry.latest.Int64 < min(entry.end, end)
-	if ok && entry.revision == revision && entry.start == start && sameEnd {
-		return entry.usage, tx.Commit()
-	}
-	usage, err := s.queryNodeTrafficUsage(ctx, tx, subscriptionID, email, start, end)
+	entry, err := s.readLedgerUsage(ctx, subscriptionID, &email, start, end, entry, ok)
 	if err != nil {
-		return 0, err
-	}
-	var latest sql.NullInt64
-	if err = tx.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM traffic_ledger WHERE subscription_id=? AND email=?`, subscriptionID, email).Scan(&latest); err != nil {
-		return 0, err
-	}
-	if err = tx.Commit(); err != nil {
 		return 0, err
 	}
 	s.usageMu.Lock()
@@ -65,9 +39,9 @@ func (s *Store) NodeTrafficUsage(ctx context.Context, subscriptionID, email stri
 			break
 		}
 	}
-	s.nodeUsageCache[key] = nodeTrafficUsageEntry{start: start, end: end, revision: revision, latest: latest, usage: usage}
+	s.nodeUsageCache[key] = entry
 	s.usageMu.Unlock()
-	return usage, nil
+	return entry.usage.Total, nil
 }
 
 func (s *Store) queryNodeTrafficUsage(ctx context.Context, q trafficQuerier, subscriptionID, email string, start, end int64) (float64, error) {

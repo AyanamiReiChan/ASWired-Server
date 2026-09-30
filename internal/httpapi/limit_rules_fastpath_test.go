@@ -37,7 +37,7 @@ func probeBehaviorLedgerReads(t *testing.T, a *App, sub store.Record) {
 	}
 	for _, query := range []string{
 		`ALTER TABLE traffic_ledger RENAME TO behavior_probe_ledger`,
-		`CREATE VIEW traffic_ledger AS SELECT id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,test_behavior_usage_read(weighted_bytes) AS weighted_bytes,sampled_at,gap,gap_reason FROM behavior_probe_ledger`,
+		`CREATE VIEW traffic_ledger AS SELECT rowid,id,server_id,subscription_id,owner_id,email,direction,raw_bytes,factor,test_behavior_usage_read(weighted_bytes) AS weighted_bytes,sampled_at,gap,gap_reason FROM behavior_probe_ledger`,
 	} {
 		if _, err := a.DB.DB().Exec(query); err != nil {
 			t.Fatal(err)

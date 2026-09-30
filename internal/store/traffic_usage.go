@@ -11,9 +11,15 @@ type TrafficUsage struct {
 }
 
 type trafficUsageEntry struct {
-	start, end, revision int64
-	latest               sql.NullInt64
-	usage                TrafficUsage
+	start, end, revision, mutation int64
+	latest                         sql.NullInt64
+	// prefix contains only rows strictly before frontier. Replaying the bounded
+	// tail preserves SQLite's summation order even when different agents report
+	// slightly out of order or several counters have the same sampled_at.
+	frontier    int64
+	prefix      ledgerSums
+	incremental bool
+	usage       TrafficUsage
 }
 
 // SubscriptionUsage reads a coherent ledger snapshot. Only SQLite caches sums;
@@ -22,44 +28,26 @@ func (s *Store) SubscriptionUsage(ctx context.Context, subscriptionID string, st
 	if s.driver != "sqlite" {
 		return s.queryTrafficUsage(ctx, s.db, subscriptionID, start, end)
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return TrafficUsage{}, err
-	}
-	defer tx.Rollback()
-	var revision int64
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT revision FROM traffic_usage_revisions WHERE subscription_id=?),0)`, subscriptionID).Scan(&revision)
-	if err != nil {
-		return TrafficUsage{}, err
-	}
 	s.usageMu.Lock()
 	entry, ok := s.usageCache[subscriptionID]
 	s.usageMu.Unlock()
-	// A subscription without a cycle end uses now+100 years. Reuse that moving
-	// bound only when neither bound excludes any row; future-dated imports must
-	// still obey the exact original half-open interval.
-	sameEnd := entry.end == end || !entry.latest.Valid || entry.latest.Int64 < min(entry.end, end)
-	if ok && entry.revision == revision && entry.start == start && sameEnd {
-		return entry.usage, tx.Commit()
-	}
-	usage, err := s.queryTrafficUsage(ctx, tx, subscriptionID, start, end)
+	entry, err := s.readLedgerUsage(ctx, subscriptionID, nil, start, end, entry, ok)
 	if err != nil {
 		return TrafficUsage{}, err
 	}
-	var latest sql.NullInt64
-	if err = tx.QueryRowContext(ctx, `SELECT MAX(sampled_at) FROM traffic_ledger WHERE subscription_id=?`, subscriptionID).Scan(&latest); err != nil {
-		return TrafficUsage{}, err
-	}
-	if err = tx.Commit(); err != nil {
-		return TrafficUsage{}, err
-	}
 	s.usageMu.Lock()
-	if s.usageCache == nil || len(s.usageCache) >= 1024 {
+	if s.usageCache == nil {
 		s.usageCache = make(map[string]trafficUsageEntry)
 	}
-	s.usageCache[subscriptionID] = trafficUsageEntry{start: start, end: end, revision: revision, latest: latest, usage: usage}
+	if _, exists := s.usageCache[subscriptionID]; !exists && len(s.usageCache) >= 1024 {
+		for oldID := range s.usageCache {
+			delete(s.usageCache, oldID)
+			break
+		}
+	}
+	s.usageCache[subscriptionID] = entry
 	s.usageMu.Unlock()
-	return usage, nil
+	return entry.usage, nil
 }
 
 type trafficQuerier interface {
@@ -122,5 +110,5 @@ func createTrafficUsageSchema(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	return nil
+	return createTrafficWindowSchema(ctx, tx)
 }

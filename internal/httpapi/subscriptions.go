@@ -195,6 +195,17 @@ func (a *App) subscriptionCandidates(ctx context.Context, sub store.Record) ([]s
 	if err != nil {
 		return nil, err
 	}
+	nodes, err := a.DB.ListRecords(ctx, "nodes", "")
+	if err != nil {
+		return nil, err
+	}
+	return a.subscriptionCandidatesFrom(ctx, sub, plan, nodes)
+}
+
+// The caller checks subscriptionActive before filtering its node snapshot.
+// Keep permissions and node quotas shared by subscription delivery and behavior
+// evaluation so limiting traffic cannot grant a different subscription scope.
+func (a *App) subscriptionCandidatesFrom(ctx context.Context, sub, plan store.Record, nodes []store.Record) ([]store.Record, error) {
 	allowed := map[string]bool{}
 	for _, id := range stringList(plan.Data["nodeIds"]) {
 		allowed[id] = true
@@ -202,10 +213,6 @@ func (a *App) subscriptionCandidates(ctx context.Context, sub store.Record) ([]s
 	subAllowed := map[string]bool{}
 	for _, id := range stringList(sub.Data["nodeIds"]) {
 		subAllowed[id] = true
-	}
-	nodes, err := a.DB.ListRecords(ctx, "nodes", "")
-	if err != nil {
-		return nil, err
 	}
 	result := []store.Record{}
 	over, throttle, err := a.quotaOutcome(ctx, sub)

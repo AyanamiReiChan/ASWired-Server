@@ -188,19 +188,42 @@ func (a *App) registerLimitRules(mux *http.ServeMux) {
 }
 
 func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behaviorConfig, error) {
+	return (&behaviorResolver{app: a, serverID: serverID}).forUser(ctx, userID)
+}
+
+// A resolver belongs to a single report. Nodes and shared rule sources are read
+// once for that report, never retained across reports or configuration changes.
+type behaviorResolver struct {
+	app          *App
+	serverID     string
+	globalLoaded bool
+	global       behaviorConfig
+	globalErr    error
+	plans        map[string]store.Record
+	nodesLoaded  bool
+	nodes        []store.Record
+	nodesErr     error
+}
+
+func (r *behaviorResolver) forUser(ctx context.Context, userID string) (behaviorConfig, error) {
+	a := r.app
 	member, _ := a.DB.GetRecord(ctx, "members", userID)
 	if value, exists := member.Data["behaviorLimits"]; exists && value != nil {
 		return behaviorConfiguration(value, "member:"+userID)
 	}
-	var settings map[string]any
-	_ = a.DB.GetSetting(ctx, "settings", &settings)
-	globalValue := settings["behaviorLimits"]
-	if globalValue == nil {
-		globalValue = defaultBehaviorLimits()
+	if !r.globalLoaded {
+		var settings map[string]any
+		_ = a.DB.GetSetting(ctx, "settings", &settings)
+		globalValue := settings["behaviorLimits"]
+		if globalValue == nil {
+			globalValue = defaultBehaviorLimits()
+		}
+		r.global, r.globalErr = behaviorConfiguration(globalValue, "global")
+		r.globalLoaded = true
 	}
-	global, err := behaviorConfiguration(globalValue, "global")
-	if err != nil {
-		return global, err
+	global := r.global
+	if r.globalErr != nil {
+		return global, r.globalErr
 	}
 	result := behaviorConfig{MaxGapSeconds: global.MaxGapSeconds}
 	seen := map[string]bool{}
@@ -209,9 +232,17 @@ func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behavio
 		return result, err
 	}
 	for _, sub := range subs {
-		plan, err := a.DB.GetRecord(ctx, "plans", text(sub.Data, "planId"))
-		if err != nil {
-			continue
+		planID := text(sub.Data, "planId")
+		plan, exists := r.plans[planID]
+		if !exists {
+			plan, err = a.DB.GetRecord(ctx, "plans", planID)
+			if err != nil {
+				continue
+			}
+			if r.plans == nil {
+				r.plans = map[string]store.Record{}
+			}
+			r.plans[planID] = plan
 		}
 		cfg := global
 		var cfgErr error
@@ -227,13 +258,28 @@ func (a *App) behaviorFor(ctx context.Context, userID, serverID string) (behavio
 		if a.subscriptionActive(ctx, sub) != nil {
 			continue
 		}
-		nodes, err := a.eligibleNodes(ctx, sub)
+		if !r.nodesLoaded {
+			var nodes []store.Record
+			nodes, r.nodesErr = a.DB.ListRecords(ctx, "nodes", "")
+			for _, node := range nodes {
+				if text(node.Data, "serverId") == r.serverID {
+					r.nodes = append(r.nodes, node)
+				}
+			}
+			r.nodesLoaded = true
+		}
+		if r.nodesErr != nil {
+			continue
+		}
+		nodes, err := a.subscriptionCandidatesFrom(ctx, sub, plan, r.nodes)
 		if err != nil {
 			continue
 		}
 		selected := false
 		for _, node := range nodes {
-			if text(node.Data, "serverId") == serverID {
+			// Preserve the authoritative profile, credentials and relay checks;
+			// only this server's candidates need them and one match is enough.
+			if _, err := a.realitySubscriptionNode(ctx, node, sub); err == nil {
 				selected = true
 				break
 			}
@@ -322,8 +368,9 @@ func (a *App) evaluateBehavior(ctx context.Context, serverID string, stats map[s
 	limitRuleMu.Lock()
 	defer limitRuleMu.Unlock()
 	changed := false
+	resolver := behaviorResolver{app: a, serverID: serverID}
 	for userID, current := range grouped {
-		cfg, err := a.behaviorFor(ctx, userID, serverID)
+		cfg, err := resolver.forUser(ctx, userID)
 		if err != nil {
 			continue
 		}
