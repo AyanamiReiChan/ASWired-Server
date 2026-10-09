@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -398,26 +399,42 @@ func (a *App) membershipConfirmRenewal(ctx context.Context, u store.User, in act
 func (a *App) mergedView(w http.ResponseWriter, r *http.Request) {
 	rec, e := a.DB.GetRecord(r.Context(), "_mergedSubscriptions", current(r).ID)
 	if errors.Is(e, store.ErrNotFound) {
-		respond(w, 200, map[string]any{"enabled": false})
-		return
+		rec = store.Record{Data: map[string]any{}}
+		e = nil
 	}
 	if e != nil {
 		fail(w, 500, "storage_error", "读取合并订阅失败")
 		return
 	}
-	respond(w, 200, rec.Data)
+	subs, e := a.DB.ListRecords(r.Context(), "subscriptions", current(r).ID)
+	if e != nil {
+		fail(w, 500, "storage_error", "读取套餐实例失败")
+		return
+	}
+	respond(w, 200, a.mergedProjection(r.Context(), rec, subs))
 }
 func (a *App) mergedSave(w http.ResponseWriter, r *http.Request) {
 	memberLinkMu.Lock()
 	defer memberLinkMu.Unlock()
 	var in struct {
-		Enabled bool `json:"enabled"`
-		Rotate  bool `json:"rotate"`
+		Enabled         bool            `json:"enabled"`
+		Rotate          bool            `json:"rotate"`
+		SubscriptionIDs json.RawMessage `json:"subscriptionIds"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	u := current(r)
+	subs, e := a.DB.ListRecords(r.Context(), "subscriptions", u.ID)
+	if e != nil {
+		fail(w, 500, "storage_error", "读取套餐实例失败")
+		return
+	}
+	selection, e := validateMergedSelection(in.SubscriptionIDs, subs)
+	if e != nil {
+		fail(w, 400, "invalid_selection", e.Error())
+		return
+	}
 	rec, e := a.DB.GetRecord(r.Context(), "_mergedSubscriptions", u.ID)
 	if e != nil && !errors.Is(e, store.ErrNotFound) {
 		fail(w, 500, "storage_error", "读取失败")
@@ -425,6 +442,9 @@ func (a *App) mergedSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if rec.Data == nil {
 		rec = store.Record{Collection: "_mergedSubscriptions", ID: u.ID, OwnerID: u.ID, Data: map[string]any{}}
+	}
+	if len(in.SubscriptionIDs) > 0 {
+		rec.Data["subscriptionIds"] = selection
 	}
 	if in.Rotate || text(rec.Data, "tokenHash") == "" {
 		token := newID() + newID()
@@ -437,7 +457,7 @@ func (a *App) mergedSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r.Context(), u, "subscription.merged.update", u.ID, nil)
-	respond(w, 200, rec.Data)
+	respond(w, 200, a.mergedProjection(r.Context(), rec, subs))
 }
 func (a *App) mergedDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -463,7 +483,11 @@ func (a *App) mergedDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		permitted := []store.Record{}
 		denied := 0
+		selected := mergedSelection(rec)
 		for _, sub := range subs {
+			if selected != nil && !selected[sub.ID] {
+				continue
+			}
 			if membershipIPAllowed(sub, requestIP(r)) {
 				permitted = append(permitted, sub)
 			} else {
