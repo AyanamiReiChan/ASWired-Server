@@ -386,6 +386,16 @@ func (a *App) get(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) save(w http.ResponseWriter, r *http.Request) {
 	c := r.PathValue("collection")
+	managedLocked := false
+	if c == "inbounds" {
+		a.managedNodeMu.Lock()
+		managedLocked = true
+		defer func() {
+			if managedLocked {
+				a.managedNodeMu.Unlock()
+			}
+		}()
+	}
 	if c == "policies" || c == "plans" {
 		templateMu.Lock()
 		defer templateMu.Unlock()
@@ -489,6 +499,12 @@ func (a *App) save(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid_record", e.Error())
 		return
 	}
+	if c == "inbounds" && exists {
+		if err := a.firewallInboundChange(r.Context(), previous, row); err != nil {
+			fail(w, 409, "firewall_protected", err.Error())
+			return
+		}
+	}
 	if c == "plans" || c == "members" {
 		if e = validateLimitConfiguration(row); e != nil {
 			fail(w, 400, "invalid_limits", e.Error())
@@ -564,6 +580,12 @@ func (a *App) save(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "storage_error", "保存失败")
 		}
 		return
+	}
+	// Reconciliation refreshes managed node projections under the same lock.
+	// Only validation and the authoritative inbound write need this critical section.
+	if managedLocked {
+		a.managedNodeMu.Unlock()
+		managedLocked = false
 	}
 	if c == "servers" && !exists {
 		_, e = a.DB.SaveRecord(r.Context(), store.Record{Collection: "_agentCredentials", ID: id, Data: map[string]any{"serverToken": newID() + newID(), "agentToken": newID() + newID()}})

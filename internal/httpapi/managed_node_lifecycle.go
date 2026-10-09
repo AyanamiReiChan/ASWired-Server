@@ -32,6 +32,10 @@ func (a *App) deleteManagedInbound(w http.ResponseWriter, r *http.Request, rec s
 		fail(w, 409, "server_unavailable", "无法为关联服务器创建删除任务")
 		return
 	}
+	if err := a.firewallInboundChange(ctx, inbound, nil); err != nil {
+		fail(w, 409, "firewall_protected", err.Error())
+		return
+	}
 	if err := a.rememberManagedInboundTags(ctx, inbound); err != nil {
 		fail(w, 503, "storage_error", "旧入站任务归属保存失败，请重试")
 		return

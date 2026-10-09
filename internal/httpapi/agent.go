@@ -80,7 +80,7 @@ func (a *App) acceptReport(ctx context.Context, report agentwire.Report, transpo
 		// Older Agents may still send host metrics. Only retain management state;
 		// Komari is the sole source of host monitoring and its history.
 		state := map[string]any{}
-		for _, key := range []string{"core", "vision_splice", "network_forward", "mihomo", "xray_stats", "agent_update"} {
+		for _, key := range []string{"core", "vision_splice", "network_forward", "network_firewall", "mihomo", "xray_stats", "agent_update"} {
 			if value, ok := report.Observation[key]; ok {
 				state[key] = value
 			}
@@ -158,6 +158,7 @@ func (a *App) finishTask(ctx context.Context, serverID string, result agentwire.
 	}
 	a.finishAuxiliaryCompile(ctx, task)
 	a.finishXrayCache(ctx, task, result)
+	a.finishFirewallTask(ctx, task, result)
 	if (result.Status == "failed" || result.Status == "unsupported") && task.ActorID != "system:xray-cache" && !strings.HasPrefix(task.Kind, "logs.") {
 		a.emitEvent(ctx, "task.failed", "", task.ID, "任务 "+task.Kind+" 执行失败，请登录主控查看详情。", map[string]any{"serverId": serverID, "status": result.Status})
 	}
@@ -279,6 +280,9 @@ func (a *App) agentWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (a *App) queue(ctx context.Context, u store.User, serverID, action string, params map[string]any) (store.Task, error) {
+	if strings.HasPrefix(action, "network.firewall.") {
+		return store.Task{}, errFirewallDedicatedAPI
+	}
 	server, e := a.DB.GetRecord(ctx, "servers", serverID)
 	if e != nil {
 		return store.Task{}, e
@@ -389,6 +393,8 @@ func (a *App) permitDispatch(ctx context.Context, task store.Task) bool {
 			}
 		}
 		if err := a.validateProxyNetworkTask(ctx, task, cmd); err != nil {
+			task.Error = err.Error()
+		} else if err := a.validateFirewallTask(ctx, task, cmd); err != nil {
 			task.Error = err.Error()
 		} else if err := a.validateManagedInboundTask(ctx, task); err != nil {
 			task.Error = err.Error()

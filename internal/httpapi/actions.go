@@ -80,6 +80,8 @@ func (a *App) action(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch in.Action {
+	case "network.firewall.apply", "network.firewall.status":
+		e = errFirewallDedicatedAPI
 	case "agent.update":
 		task, e = a.queueAgentUpdate(ctx, u, in.TargetID, in.Params)
 	case "routing.get", "routing.update", "routing.preview":
