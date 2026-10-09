@@ -17,6 +17,7 @@ var memberCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{24,128}$`)
 
 func (a *App) registerMemberManagement(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/members/management", a.withAdmin(a.memberManagement))
+	mux.HandleFunc("GET /api/members/{id}/traffic", a.withAdmin(a.memberTraffic))
 	mux.HandleFunc("PUT /api/members/{id}", a.withAdmin(a.memberUpdate))
 	mux.HandleFunc("DELETE /api/members/{id}", a.withAdmin(a.memberDelete))
 	mux.HandleFunc("POST /api/members/{id}/subscription-link", a.withAdmin(a.memberSubscriptionLink))

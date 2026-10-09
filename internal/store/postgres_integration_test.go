@@ -62,6 +62,9 @@ func TestPostgresIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
+	t.Run("member node distribution windows and stored factors", func(t *testing.T) {
+		exerciseMemberTrafficDistribution(t, db)
+	})
 	t.Run("traffic usage remains uncached", func(t *testing.T) {
 		checkUsage(t, db, "usage-test", 10, 20, TrafficUsage{})
 		checkNodeUsage(t, db, "usage-test", "email", 10, 20, 0)
